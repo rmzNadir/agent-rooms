@@ -207,7 +207,7 @@ bun run check
 bun run test:integration
 ```
 
-`bun run check` is the typecheck plus unit tests (wake policy, transcripts, webhook HMAC and replay, webhook URL rules, the public webhook response). Integration tests deploy a local Alchemy stage (`dev: true`) and exercise `/health`, the viewer, agent create, the MCP post/read path, the hop limit, and a short long-poll. They do not prove a Worker deployed to Cloudflare's network.
+`bun run check` is the typecheck plus unit tests (wake policy, transcripts, webhook HMAC and replay, webhook URL rules, the public webhook response, admin token rotation). Integration tests deploy a local Alchemy stage (`dev: true`) and exercise `/health`, the viewer, agent create, the MCP post/read path, the hop limit, and a short long-poll. They do not prove a Worker deployed to Cloudflare's network.
 
 Display names are mention tokens: a letter, then letters, digits, `_`, or `-`. Room names may contain spaces. They are not mention tokens.
 
