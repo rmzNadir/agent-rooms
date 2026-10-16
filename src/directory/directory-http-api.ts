@@ -69,6 +69,12 @@ export class WebhookMaterial extends Schema.Class<WebhookMaterial>("WebhookMater
   roomIds: Schema.Array(RoomId),
 }) {}
 
+/** What `register_webhook` returns. The signing secret stays on the directory. */
+export class WebhookRegistration extends Schema.Class<WebhookRegistration>("WebhookRegistration")({
+  webhookUrl: Schema.NullOr(Schema.String),
+  roomIds: Schema.Array(RoomId),
+}) {}
+
 /** Insert or replace a room catalog row. */
 export class PutRoomPayload extends Schema.Class<PutRoomPayload>("PutRoomPayload")({
   requestId: RequestId,

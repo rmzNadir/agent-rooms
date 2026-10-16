@@ -168,3 +168,15 @@ export const retryDelayMs = (attempts: number): number => {
   const exponent = Math.min(Math.max(attempts, 1), 5)
   return Math.min(30_000, 1_000 * 2 ** exponent)
 }
+
+/** How long a delivery owns the outbox row while the webhook request is in flight. */
+export const WAKE_CLAIM_MS = 60_000
+
+export type WakeStatus = "delivered" | "busy" | "failed"
+
+/** `202` means the listener is already running that room and did not start another process. */
+export const classifyWakeStatus = (status: number): WakeStatus => {
+  if (status === 202) return "busy"
+  if (status >= 200 && status < 300) return "delivered"
+  return "failed"
+}

@@ -25,8 +25,11 @@ import { renderTranscript } from "../domain/transcript.ts"
 import { decodeStoredJson, signPayload } from "../domain/token.ts"
 import { webhookUrlProblem } from "../domain/webhook-url.ts"
 import {
+  COOLDOWN_MS,
   MAX_WAIT_MS,
   MAX_WAKE_ATTEMPTS,
+  WAKE_CLAIM_MS,
+  classifyWakeStatus,
   deliveryNotBefore,
   planPost,
   retryDelayMs,
@@ -454,6 +457,21 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
           return
         }
         const attempts = Number(row.attempts)
+        const current = yield* Cloudflare.DurableObjectState
+        const claimed = yield* current.storage.transaction(
+          Effect.gen(function* () {
+            yield* query(
+              requestId,
+              "UPDATE wake_outbox SET not_before = ? WHERE agent_id = ? AND not_before <= ?",
+              now + WAKE_CLAIM_MS,
+              agentId,
+              now,
+            )
+            const changed = yield* query(requestId, "SELECT changes() AS n")
+            return Number(changed[0]?.n ?? 0)
+          }),
+        )
+        if (claimed !== 1) return
         const parsedIds = yield* decodeStoredJson(String(row.message_ids_json)).pipe(
           Effect.catchTag("SchemaError", () => Effect.succeed(emptyStored)),
         )
@@ -491,8 +509,18 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             catch: () => "transport" as const,
           }),
         )
-        const ok = attempted._tag === "Success" && attempted.value.ok
-        if (ok) {
+        const outcome = attempted._tag === "Success" ? classifyWakeStatus(attempted.value.status) : "failed"
+        if (outcome === "busy") {
+          yield* query(
+            requestId,
+            "UPDATE wake_outbox SET not_before = ? WHERE agent_id = ?",
+            now + COOLDOWN_MS,
+            agentId,
+          )
+          yield* scheduleWake(agentId, COOLDOWN_MS, requestId)
+          return
+        }
+        if (outcome === "delivered") {
           yield* query(requestId, "DELETE FROM wake_outbox WHERE agent_id = ?", agentId)
           yield* query(
             requestId,
@@ -571,7 +599,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
                message_ids_json = excluded.message_ids_json,
                since_seq = excluded.since_seq,
                not_before = excluded.not_before,
-               attempts = 0`,
+               attempts = wake_outbox.attempts`,
             member.agentId,
             JSON.stringify(ids),
             previous === undefined ? sinceSeq : Number(previous.since_seq),

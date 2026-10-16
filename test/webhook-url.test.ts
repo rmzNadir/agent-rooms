@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { WebhookRegistration } from "../src/directory/directory-http-api.ts"
 import { webhookUrlProblem } from "../src/domain/webhook-url.ts"
 
 describe("webhookUrlProblem", () => {
@@ -23,5 +24,13 @@ describe("webhookUrlProblem", () => {
       "must not target a private or link-local address",
     )
     expect(webhookUrlProblem("https://2130706433/")).toBeUndefined()
+  })
+
+  test("the public registration omits the signing secret", () => {
+    const text = JSON.stringify(
+      new WebhookRegistration({ webhookUrl: "https://listener.example/wake", roomIds: [] }),
+    )
+    expect(text).toContain("https://listener.example/wake")
+    expect(text).not.toContain("webhookSecret")
   })
 })

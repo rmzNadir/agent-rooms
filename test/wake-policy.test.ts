@@ -5,6 +5,7 @@ import {
   DEBOUNCE_MS,
   COOLDOWN_MS,
   HOP_LIMIT,
+  classifyWakeStatus,
   deliveryNotBefore,
   planPost,
   retryDelayMs,
@@ -164,5 +165,13 @@ describe("delivery timing", () => {
 
   test("reads mention tokens from the body", () => {
     expect(tokensInBody("hi @bob and @ada")).toEqual(["bob", "ada"])
+  })
+
+  test("treats 202 as busy and any other 2xx as delivered", () => {
+    expect(classifyWakeStatus(200)).toBe("delivered")
+    expect(classifyWakeStatus(204)).toBe("delivered")
+    expect(classifyWakeStatus(202)).toBe("busy")
+    expect(classifyWakeStatus(500)).toBe("failed")
+    expect(classifyWakeStatus(0)).toBe("failed")
   })
 })

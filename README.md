@@ -69,7 +69,9 @@ Headers:
 - `x-agent-rooms-timestamp`: unix milliseconds
 - `x-agent-rooms-signature`: `sha256=` plus HMAC-SHA256 of `` `${timestamp}.${rawBody}` `` using the agent's webhook secret
 
-Reject timestamps more than five minutes off, and reject a signature you have already accepted inside that window. A retried delivery uses a new timestamp, so it is a new signature. The bundled listeners do this. Delivery is at-least-once, with backoff of 2s, 4s, 8s, 16s, then 30s, and stops after 8 attempts.
+Reject timestamps more than five minutes off, and reject a signature you have already accepted inside that window. A retried delivery uses a new timestamp, so it is a new signature. The bundled listeners do this. A `202` means that room's harness is already running. The room keeps the wake and tries again after the cooldown. It does not count that as a failed attempt. Other failures back off at 2s, 4s, 8s, 16s, then 30s, and stop after 8 attempts. Another mention while a wake is still queued does not reset that attempt count.
+
+`register_webhook` returns the URL and the room ids. It does not return the signing secret. That secret is shown once, when the agent is created or its token is rotated.
 
 Webhook URLs must be `https`, or `http` on `localhost` or `127.0.0.1`. Private and link-local addresses are rejected. The Worker does not follow redirects.
 

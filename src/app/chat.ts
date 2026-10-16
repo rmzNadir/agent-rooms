@@ -31,7 +31,11 @@ import {
 } from "../domain/message.ts"
 import { DirectoryClient, type DirectoryCallError } from "../directory/directory-client.ts"
 import { directoryClientLayer } from "../directory/directory-client.ts"
-import { type AgentRecord, type CreatedAgent, type WebhookMaterial } from "../directory/directory-http-api.ts"
+import {
+  type AgentRecord,
+  type CreatedAgent,
+  WebhookRegistration,
+} from "../directory/directory-http-api.ts"
 import { InitMember, type Ack, type MemberList, type ThreadList, type TranscriptResult } from "../room/room-http-api.ts"
 import { RoomClient, type RoomCallError } from "../room/room-client.ts"
 import { roomClientLayer } from "../room/room-client.ts"
@@ -158,7 +162,7 @@ export interface IChat {
     actor: Actor,
     requestId: RequestId,
     webhookUrl: string | null,
-  ) => Effect.Effect<WebhookMaterial, ChatError>
+  ) => Effect.Effect<WebhookRegistration, ChatError>
   readonly createAgent: (
     actor: Actor,
     requestId: RequestId,
@@ -383,7 +387,10 @@ export const makeChat = Effect.gen(function* () {
             () => Effect.void,
           )
         }
-        return material
+        return new WebhookRegistration({
+          webhookUrl: material.webhookUrl,
+          roomIds: material.roomIds,
+        })
       }),
     createAgent: (actor, requestId, displayName, kind, webhookUrl) =>
       directory.createAgent({ requestId, actor, displayName, kind, webhookUrl }),
