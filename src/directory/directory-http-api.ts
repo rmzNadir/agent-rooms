@@ -160,7 +160,7 @@ const rotateToken = HttpApiEndpoint.post("rotateToken", "/v1/agents/rotate", {
 const setWebhook = HttpApiEndpoint.post("setWebhook", "/v1/agents/webhook", {
   payload: SetWebhookPayload,
   success: WebhookMaterial,
-  error: [Forbidden, PersistenceFailed],
+  error: [Forbidden, PersistenceFailed, InvalidArgument],
 })
 
 const putRoom = HttpApiEndpoint.post("putRoom", "/v1/rooms", {

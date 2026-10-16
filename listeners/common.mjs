@@ -25,6 +25,20 @@ export const verifySignature = (secret, timestamp, body, header) => {
   return timingSafeEqual(left, right)
 }
 
+/**
+ * Accept a signature once inside the skew window. A second POST of the same
+ * signed bytes is a replay, even when the timestamp is still fresh.
+ * @param {Map<string, number>} seen
+ */
+export const rememberSignature = (seen, signature, now) => {
+  for (const [key, expiresAt] of seen) {
+    if (expiresAt <= now) seen.delete(key)
+  }
+  if (seen.has(signature)) return false
+  seen.set(signature, now + maxSkewMs)
+  return true
+}
+
 const stateDir = () => {
   const dir = path.join(homedir(), ".agent-rooms")
   mkdirSync(dir, { recursive: true })
@@ -156,6 +170,7 @@ export const serve = (start) => {
     console.error("Set webhookSecret in agent-rooms.listener.json or AGENT_ROOMS_WEBHOOK_SECRET.")
     process.exit(1)
   }
+  const seenSignatures = new Map()
   const server = createServer(async (req, res) => {
     if (req.method !== "POST") {
       res.writeHead(404)
@@ -167,7 +182,10 @@ export const serve = (start) => {
     const body = Buffer.concat(chunks).toString("utf8")
     const timestamp = req.headers["x-agent-rooms-timestamp"]
     const signature = req.headers["x-agent-rooms-signature"]
-    if (!verifySignature(config.webhookSecret, timestamp, body, signature)) {
+    if (
+      !verifySignature(config.webhookSecret, timestamp, body, signature) ||
+      !rememberSignature(seenSignatures, signature, Date.now())
+    ) {
       res.writeHead(401, { "content-type": "application/json" })
       res.end(JSON.stringify({ ok: false, message: "Signature did not match. Check the webhook secret and clock." }))
       return

@@ -15,6 +15,7 @@ import {
 import { AgentId, makeAgentId, type RequestId, RoomId } from "../domain/ids.ts"
 import { IdentityView, RoomSummary } from "../domain/message.ts"
 import { hashToken, makeSecret } from "../domain/token.ts"
+import { webhookUrlProblem } from "../domain/webhook-url.ts"
 import {
   AgentList,
   AgentRecord,
@@ -60,6 +61,22 @@ const forbidden = (requestId: RequestId, operation: string) =>
     details: {},
     retryable: false,
   })
+
+const requireWebhook = (requestId: RequestId, operation: string, webhookUrl: string | null) => {
+  if (webhookUrl === null) return Effect.void
+  const problem = webhookUrlProblem(webhookUrl)
+  if (problem === undefined) return Effect.void
+  return Effect.fail(
+    new InvalidArgument({
+      code: "InvalidArgument",
+      operation,
+      message: `Webhook URL ${problem}. Use https, or http://127.0.0.1 for a local listener.`,
+      requestId,
+      details: { field: "webhookUrl", constraint: problem },
+      retryable: false,
+    }),
+  )
+}
 
 /**
  * Singleton catalog of agents, hashed tokens, and room membership.
@@ -228,6 +245,7 @@ export default class DirectoryServer extends Cloudflare.DurableObject<DirectoryS
 
       const createAgent = Effect.fn("DirectoryServer.createAgent")(function* (payload: CreateAgentPayload) {
         if (!payload.actor.admin) return yield* forbidden(payload.requestId, "create_agent")
+        yield* requireWebhook(payload.requestId, "create_agent", payload.webhookUrl)
         const name = yield* decodeName(payload.displayName).pipe(
           Effect.catchTag("SchemaError", () =>
             Effect.fail(
@@ -321,6 +339,7 @@ export default class DirectoryServer extends Cloudflare.DurableObject<DirectoryS
       })
 
       const setWebhook = Effect.fn("DirectoryServer.setWebhook")(function* (payload: SetWebhookPayload) {
+        yield* requireWebhook(payload.requestId, "register_webhook", payload.webhookUrl)
         const target = payload.actor.agentId
         const agent = yield* findById(payload.requestId, target)
         if (agent === undefined) return yield* forbidden(payload.requestId, "register_webhook")

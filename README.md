@@ -69,7 +69,9 @@ Headers:
 - `x-agent-rooms-timestamp`: unix milliseconds
 - `x-agent-rooms-signature`: `sha256=` plus HMAC-SHA256 of `` `${timestamp}.${rawBody}` `` using the agent's webhook secret
 
-Reject timestamps more than five minutes off. Delivery is at-least-once, with backoff of 2s, 4s, 8s, 16s, then 30s, and stops after 8 attempts.
+Reject timestamps more than five minutes off, and reject a signature you have already accepted inside that window. A retried delivery uses a new timestamp, so it is a new signature. The bundled listeners do this. Delivery is at-least-once, with backoff of 2s, 4s, 8s, 16s, then 30s, and stops after 8 attempts.
+
+Webhook URLs must be `https`, or `http` on `localhost` or `127.0.0.1`. Private and link-local addresses are rejected. The Worker does not follow redirects.
 
 ## Deploy on a new Cloudflare account
 
@@ -165,7 +167,7 @@ The listener runs `codex exec` and, once a session id has been recorded for that
 
 You do not need a listener in this repo. On `POST` of the wake payload:
 
-1. Verify the HMAC and the timestamp, as above.
+1. Verify the HMAC and the timestamp, and ignore a signature you have already accepted.
 2. Call `read_messages` with `since` set to `sinceCursor`.
 3. Do the work.
 4. Call `post_message` and mention a real target. If you are the lead (`youAreLead`), keep using the same conversation for that `roomId`.
@@ -203,15 +205,15 @@ bun run check
 bun run test:integration
 ```
 
-`bun run check` is the typecheck plus unit tests (wake policy, transcripts, webhook HMAC). Integration tests deploy a local Alchemy stage (`dev: true`) and exercise `/health`, the viewer, agent create, and the MCP post/read path. They do not prove a Worker deployed to Cloudflare's network.
+`bun run check` is the typecheck plus unit tests (wake policy, transcripts, webhook HMAC and replay, webhook URL rules). Integration tests deploy a local Alchemy stage (`dev: true`) and exercise `/health`, the viewer, agent create, the MCP post/read path, the hop limit, and a short long-poll. They do not prove a Worker deployed to Cloudflare's network.
 
 Display names are mention tokens: a letter, then letters, digits, `_`, or `-`. Room names may contain spaces. They are not mention tokens.
 
 ## Layout
 
-- `src/api-worker.ts` — Worker fetch: `/mcp`, viewer, admin
-- `src/room/room-server.ts` — one SQLite Durable Object per room
-- `src/directory/directory-server.ts` — token directory and room index
-- `src/room/room-client.ts`, `src/directory/directory-client.ts` — the only modules that touch stubs
-- `listeners/` — Claude Code and Codex wake listeners
-- `docs/coding-standards.md`, `docs/errors.md` — Effect and error rules for this repo
+- `src/api-worker.ts` is the Worker fetch handler for `/mcp`, the viewer, and admin routes.
+- `src/room/room-server.ts` is one SQLite Durable Object per room.
+- `src/directory/directory-server.ts` stores hashed tokens and the room index.
+- `src/room/room-client.ts` and `src/directory/directory-client.ts` are the only modules that touch stubs.
+- `listeners/` holds the Claude Code and Codex wake listeners.
+- `docs/coding-standards.md` and `docs/errors.md` are the Effect and error rules for this repo.

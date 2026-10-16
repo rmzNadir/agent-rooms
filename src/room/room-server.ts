@@ -23,6 +23,7 @@ import { AgentId, internalRequestId, type RequestId, type RoomId, systemAgentId 
 import { MemberView, MessagePage, MessageView, ReactionView, RoomSummary, ThreadSummary, UnreadView } from "../domain/message.ts"
 import { renderTranscript } from "../domain/transcript.ts"
 import { decodeStoredJson, signPayload } from "../domain/token.ts"
+import { webhookUrlProblem } from "../domain/webhook-url.ts"
 import {
   MAX_WAIT_MS,
   MAX_WAKE_ATTEMPTS,
@@ -65,6 +66,7 @@ const decodeStringList = Schema.decodeUnknownEffect(Schema.Array(Schema.String))
 
 const schemaRequestId = internalRequestId
 const emptyStored: unknown = []
+const noMessageIds: ReadonlyArray<string> = []
 
 const persist = (requestId: RequestId, operation: string) =>
   new PersistenceFailed({
@@ -447,12 +449,16 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         }
         const webhookUrl = member.webhookUrl
         const webhookSecret = member.webhookSecret
+        if (webhookUrlProblem(webhookUrl) !== undefined) {
+          yield* query(requestId, "DELETE FROM wake_outbox WHERE agent_id = ?", agentId)
+          return
+        }
         const attempts = Number(row.attempts)
         const parsedIds = yield* decodeStoredJson(String(row.message_ids_json)).pipe(
           Effect.catchTag("SchemaError", () => Effect.succeed(emptyStored)),
         )
         const triggeringMessageIds = yield* decodeStringList(parsedIds).pipe(
-          Effect.catchTag("SchemaError", () => Effect.succeed([] as ReadonlyArray<string>)),
+          Effect.catchTag("SchemaError", () => Effect.succeed(noMessageIds)),
         )
         const roomKey = yield* canonicalRoomId().pipe(
           Effect.catchTag("PersistenceFailed", () => Effect.succeed("unknown" as const)),
@@ -474,6 +480,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             try: () =>
               fetch(webhookUrl, {
                 method: "POST",
+                redirect: "manual",
                 headers: {
                   "content-type": "application/json",
                   "x-agent-rooms-timestamp": timestamp,
@@ -545,7 +552,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
               Effect.catchTag("SchemaError", () => Effect.succeed(emptyStored)),
             )
             const prior = yield* decodeStringList(parsed).pipe(
-              Effect.catchTag("SchemaError", () => Effect.succeed([] as ReadonlyArray<string>)),
+              Effect.catchTag("SchemaError", () => Effect.succeed(noMessageIds)),
             )
             ids = [...prior, messageId]
           }
@@ -785,49 +792,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         if (payload.body.trim().length === 0 || payload.body.length > 8_000) {
           return yield* invalid(payload.requestId, "post_message", "body", "must be 1 to 8000 characters")
         }
-        const { id, flags, members, member } = yield* requireJoined(payload.actor, payload.requestId)
-        const wakeMembers: WakeMember[] = members
-          .filter((item) => item.joined)
-          .map((item) => ({ agentId: item.agentId, displayName: item.displayName, kind: item.kind }))
-        const plan = planPost({
-          authorId: payload.actor.agentId,
-          authorKind: payload.actor.kind,
-          body: payload.body,
-          explicitMentions: payload.mentions,
-          members: wakeMembers,
-          hopCount: flags.hopCount,
-          paused: flags.paused,
-        })
-        if (plan._tag === "RejectUntagged") {
-          return yield* new MentionRequired({
-            code: "MentionRequired",
-            operation: "post_message",
-            message: `Message in room ${id} was not posted. Agents must @mention a member, @all, or @human.`,
-            requestId: payload.requestId,
-            details: { roomId: id },
-            retryable: false,
-          })
-        }
-        if (plan._tag === "UnknownMention") {
-          return yield* new UnknownMention({
-            code: "UnknownMention",
-            operation: "post_message",
-            message: `@${plan.token} is not a member of room ${id}. Use a display name, @all, or @human.`,
-            requestId: payload.requestId,
-            details: { roomId: id, token: plan.token },
-            retryable: false,
-          })
-        }
-        if (plan._tag === "SelfMentionOnly") {
-          return yield* new SelfMentionOnly({
-            code: "SelfMentionOnly",
-            operation: "post_message",
-            message: `Message in room ${id} only mentioned you. Mention someone else; posts do not wake their author.`,
-            requestId: payload.requestId,
-            details: { roomId: id },
-            retryable: false,
-          })
-        }
+        const { id } = yield* requireJoined(payload.actor, payload.requestId)
         let threadRoot = payload.threadRoot
         const replyTo = payload.replyTo
         if (replyTo !== null) {
@@ -860,6 +825,24 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         const current = yield* Cloudflare.DurableObjectState
         const stored = yield* current.storage.transaction(
           Effect.gen(function* () {
+            const flags = yield* loadFlags(payload.requestId)
+            if (Option.isNone(flags)) return { _tag: "Missing" as const }
+            const members = yield* loadMembers(payload.requestId)
+            const member = joinedMember(payload.actor, members)
+            if (member === undefined) return { _tag: "Gone" as const }
+            const wakeMembers: WakeMember[] = members
+              .filter((item) => item.joined)
+              .map((item) => ({ agentId: item.agentId, displayName: item.displayName, kind: item.kind }))
+            const plan = planPost({
+              authorId: member.agentId,
+              authorKind: member.kind,
+              body: payload.body,
+              explicitMentions: payload.mentions,
+              members: wakeMembers,
+              hopCount: flags.value.hopCount,
+              paused: flags.value.paused,
+            })
+            if (plan._tag !== "Accept") return { _tag: "Rejected" as const, plan }
             yield* query(
               payload.requestId,
               "UPDATE room_flags SET hop_count = ?, paused = ? WHERE id = 1",
@@ -895,13 +878,46 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
                 yield* enqueue(payload.requestId, targetMember, message.id, targetMember.lastReadSeq)
               }
             }
-            return { message, notice }
+            return { _tag: "Stored" as const, message, notice }
           }),
         ).pipe(
           Effect.catchTag("DurableObjectStorageError", () =>
             Effect.fail(persist(payload.requestId, "post_message")),
           ),
         )
+        if (stored._tag === "Missing") return yield* roomMissing(id, payload.requestId)
+        if (stored._tag === "Gone") return yield* notMember(id, payload.requestId)
+        if (stored._tag === "Rejected") {
+          const plan = stored.plan
+          if (plan._tag === "RejectUntagged") {
+            return yield* new MentionRequired({
+              code: "MentionRequired",
+              operation: "post_message",
+              message: `Message in room ${id} was not posted. Agents must @mention a member, @all, or @human.`,
+              requestId: payload.requestId,
+              details: { roomId: id },
+              retryable: false,
+            })
+          }
+          if (plan._tag === "UnknownMention") {
+            return yield* new UnknownMention({
+              code: "UnknownMention",
+              operation: "post_message",
+              message: `@${plan.token} is not a member of room ${id}. Use a display name, @all, or @human.`,
+              requestId: payload.requestId,
+              details: { roomId: id, token: plan.token },
+              retryable: false,
+            })
+          }
+          return yield* new SelfMentionOnly({
+            code: "SelfMentionOnly",
+            operation: "post_message",
+            message: `Message in room ${id} only mentioned you. Mention someone else; posts do not wake their author.`,
+            requestId: payload.requestId,
+            details: { roomId: id },
+            retryable: false,
+          })
+        }
         yield* publish(stored.message)
         if (stored.notice !== undefined) yield* publish(stored.notice)
         const messages = stored.notice === undefined ? [stored.message] : [stored.message, stored.notice]

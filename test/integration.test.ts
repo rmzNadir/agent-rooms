@@ -1,4 +1,5 @@
 import { localState } from "alchemy"
+import { HOP_LIMIT } from "../src/domain/wake-policy.ts"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Test from "alchemy/Test/Bun"
 import { Effect, Schema } from "effect"
@@ -22,6 +23,7 @@ const { test, beforeAll, deploy } = Test.make({
 })
 
 const ready = beforeAll(deploy(Stack))
+const suffix = Math.random().toString(16).slice(2, 8)
 
 const Health = Schema.Struct({ ok: Schema.Literal(true) })
 const Created = Schema.Struct({
@@ -61,7 +63,11 @@ test(
     }
 
     const admin = process.env.AGENT_ROOMS_ADMIN_TOKEN ?? ""
-    const created = yield* post(`${url}/admin/agents`, { displayName: "ada", kind: "agent", webhookUrl: null }, admin)
+    const created = yield* post(
+      `${url}/admin/agents`,
+      { displayName: `ada${suffix}`, kind: "agent", webhookUrl: null },
+      admin,
+    )
     if (created.status !== 200) return yield* Effect.die(created.text)
     const agent = yield* Schema.decodeEffect(Schema.fromJsonString(Created))(created.text)
 
@@ -80,7 +86,7 @@ test(
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "create_room", arguments: { name: "launch", topic: "ship v1", members: [] } },
+        params: { name: "create_room", arguments: { name: `launch-${suffix}`, topic: "ship v1", members: [] } },
       },
       agent.token,
     )
@@ -101,7 +107,11 @@ test(
     )
     if (!untagged.text.includes("MentionRequired")) return yield* Effect.die(untagged.text)
 
-    const human = yield* post(`${url}/admin/agents`, { displayName: "sam", kind: "human", webhookUrl: null }, admin)
+    const human = yield* post(
+      `${url}/admin/agents`,
+      { displayName: `sam${suffix}`, kind: "human", webhookUrl: null },
+      admin,
+    )
     if (human.status !== 200) return yield* Effect.die(human.text)
     const sam = yield* Schema.decodeEffect(Schema.fromJsonString(Created))(human.text)
     const invited = yield* post(
@@ -144,5 +154,85 @@ test(
       agent.token,
     )
     if (!read.text.includes("status @human")) return yield* Effect.die(read.text)
+
+    const quiet = yield* post(
+      `${url}/mcp`,
+      {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: {
+          name: "wait_for_messages",
+          arguments: { room: roomId, since: 999, limit: 10, timeout_ms: 400 },
+        },
+      },
+      agent.token,
+    )
+    if (quiet.status !== 200 || quiet.text.includes("\"isError\":true")) return yield* Effect.die(quiet.text)
+  }),
+)
+
+test(
+  "the hop limit pauses the next agent post, including two posts at once",
+  Effect.gen(function* () {
+    const compiled = yield* ready
+    const url = compiled.url
+    if (url === undefined) return yield* Effect.die("The local worker did not publish a url.")
+    const admin = process.env.AGENT_ROOMS_ADMIN_TOKEN ?? ""
+    const makeAgent = (name: string) =>
+      Effect.gen(function* () {
+        const created = yield* post(
+          `${url}/admin/agents`,
+          { displayName: `${name}${suffix}`, kind: "agent", webhookUrl: null },
+          admin,
+        )
+        if (created.status !== 200) return yield* Effect.die(created.text)
+        return yield* Schema.decodeEffect(Schema.fromJsonString(Created))(created.text)
+      })
+    const bob = yield* makeAgent("bob")
+    const cara = yield* makeAgent("cara")
+    const room = yield* post(
+      `${url}/mcp`,
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "create_room",
+          arguments: { name: `relay-${suffix}`, topic: "hops", members: [cara.agent.agentId] },
+        },
+      },
+      bob.token,
+    )
+    if (room.status !== 200) return yield* Effect.die(room.text)
+    const roomId = /room_[0-9a-f]{24}/.exec(room.text)?.[0]
+    if (roomId === undefined) return yield* Effect.die(room.text)
+    const say = (id: number, token: string) =>
+      post(
+        `${url}/mcp`,
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: {
+            name: "post_message",
+            arguments: {
+              room: roomId,
+              body: `ping ${id} @${cara.agent.displayName}`,
+              mentions: [cara.agent.displayName],
+            },
+          },
+        },
+        token,
+      )
+    for (let n = 0; n < HOP_LIMIT - 1; n++) {
+      const posted = yield* say(n + 2, bob.token)
+      if (posted.text.includes("paused after 20") || posted.text.includes("\"isError\":true")) {
+        return yield* Effect.die(posted.text)
+      }
+    }
+    const pair = yield* Effect.all([say(100, bob.token), say(101, bob.token)], { concurrency: 2 })
+    const pauses = pair.filter((posted) => posted.text.includes("paused after 20")).length
+    if (pauses !== 1) return yield* Effect.die(pair.map((posted) => posted.text).join("\n"))
   }),
 )

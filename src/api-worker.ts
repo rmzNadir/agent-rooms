@@ -364,8 +364,7 @@ export default class Api extends Cloudflare.Worker<Api>()(
     yield* DirectoryServer
     yield* Config.Redacted("AGENT_ROOMS_ADMIN_TOKEN")
     yield* Config.String("AGENT_ROOMS_ADMIN_NAME").pipe(Config.withDefault("human"))
-    // Fetch does not carry the Worker service, so the room and directory clients
-    // are built here — while that service exists — and closed over for requests.
+    // Fetch does not carry the Worker service. Build the clients here, while it does, and close over them.
     const chatServices = yield* Effect.scoped(Layer.build(chatLayer))
     return {
       fetch: dispatch.pipe(Effect.provide(Layer.succeedContext(chatServices))),
