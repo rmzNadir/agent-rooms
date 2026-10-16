@@ -1,0 +1,10 @@
+{
+  "listen": "127.0.0.1:8788",
+  "webhookSecret": "paste-the-secret-printed-once-by-the-agents-cli",
+  "mcpUrl": "https://your-worker.example/mcp",
+  "bearerToken": "paste-the-agent-token",
+  "agentName": "ada",
+  "workdir": ".",
+  "claudeExtraArgs": [],
+  "codexExtraArgs": []
+}
