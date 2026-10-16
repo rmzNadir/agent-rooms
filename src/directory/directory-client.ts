@@ -37,7 +37,6 @@ import {
 } from "./directory-http-api.ts"
 import DirectoryServer from "./directory-server.ts"
 
-/** Failures a directory call can return to the worker. */
 export type DirectoryCallError =
   | Unavailable
   | Unauthorized
@@ -66,13 +65,11 @@ const settle = <A>(effect: Effect.Effect<A, TransportError>, requestId: RequestI
     SchemaError: () => Effect.fail(down(requestId, operation)),
   })
 
-/** HttpApi encodes schema classes. Decode plain objects into those classes first. */
 const prepare = <A>(schema: Schema.Decoder<A>, payload: { readonly requestId: RequestId }, operation: string) =>
   Effect.catchTag(Schema.decodeUnknownEffect(schema)(payload), "SchemaError", () =>
     Effect.fail(down(payload.requestId, operation)),
   )
 
-/** Application-facing directory. The only module that touches the directory stub. */
 export interface IDirectoryClient {
   readonly resolve: (payload: ResolvePayload) => Effect.Effect<IdentityView, DirectoryCallError>
   readonly createAgent: (payload: CreateAgentPayload) => Effect.Effect<CreatedAgent, DirectoryCallError>
@@ -87,15 +84,12 @@ export interface IDirectoryClient {
   readonly getAgent: (payload: GetAgentPayload) => Effect.Effect<AgentRecord, DirectoryCallError>
 }
 
-/** Directory calls. One stub, rebuilt for each invocation. */
 export class DirectoryClient extends Context.Service<DirectoryClient, IDirectoryClient>()(
   "@agent-rooms/DirectoryClient",
 ) {}
 
-/** Canonical name of the singleton directory Durable Object. */
 const directoryName = "directory"
 
-/** Builds the directory client. Runtime code uses the layer. */
 export const makeDirectoryClient = Effect.gen(function* () {
   const namespace = yield* DirectoryServer
   const clientEffect = yield* makeExecutionMemo(
@@ -177,8 +171,4 @@ export const makeDirectoryClient = Effect.gen(function* () {
   })
 })
 
-/** Directory client with its Durable Object requirement still open. */
-export const directoryClientLayerWithoutDependencies = Layer.effect(DirectoryClient, makeDirectoryClient)
-
-/** Production directory client. The worker context supplies `DirectoryServer`. */
-export const directoryClientLayer = directoryClientLayerWithoutDependencies
+export const directoryClientLayer = Layer.effect(DirectoryClient, makeDirectoryClient)

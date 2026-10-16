@@ -8,9 +8,6 @@ import { HttpClient, HttpClientRequest } from "effect/http"
 process.env.AGENT_ROOMS_LOCAL_STATE = "1"
 process.env.AGENT_ROOMS_ADMIN_TOKEN ??= "integration-admin-token"
 process.env.AGENT_ROOMS_ADMIN_NAME ??= "human"
-// Local workerd still passes Alchemy's credential gate. These values are not a Cloudflare account.
-process.env.CLOUDFLARE_ACCOUNT_ID ??= "00000000000000000000000000000000"
-process.env.CLOUDFLARE_API_TOKEN ??= "local-dev-token"
 
 const { default: Stack } = await import("../alchemy.run.ts")
 

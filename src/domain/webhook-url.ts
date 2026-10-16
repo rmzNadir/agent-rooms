@@ -24,11 +24,6 @@ const privateOrReserved = (nums: ReadonlyArray<number>): boolean => {
   return false
 }
 
-/**
- * Why a webhook URL must not be fetched. `undefined` means the URL is allowed.
- * HTTPS anywhere public, or HTTP only on loopback, so a registered webhook
- * cannot point the Worker at a private address.
- */
 export const webhookUrlProblem = (value: string): string | undefined => {
   let url: URL
   try {

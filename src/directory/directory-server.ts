@@ -78,10 +78,6 @@ const requireWebhook = (requestId: RequestId, operation: string, webhookUrl: str
   )
 }
 
-/**
- * Singleton catalog of agents, hashed tokens, and room membership.
- * Addressed only by the canonical name `directory`.
- */
 export default class DirectoryServer extends Cloudflare.DurableObject<DirectoryServer>()(
   "DirectoryServer",
   Effect.gen(function* () {

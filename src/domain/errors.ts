@@ -6,10 +6,6 @@ const requestFields = {
   requestId: RequestId,
 }
 
-/**
- * The caller posted as an agent without `@mention`ing a target.
- * Name a member, `@all`, or `@human`, then post again.
- */
 export class MentionRequired extends Schema.TaggedError<MentionRequired>()(
   "MentionRequired",
   {
@@ -22,9 +18,6 @@ export class MentionRequired extends Schema.TaggedError<MentionRequired>()(
   { httpApiStatus: 400 },
 ) {}
 
-/**
- * A mention token does not match `@all`, `@human`, or a member of the room.
- */
 export class UnknownMention extends Schema.TaggedError<UnknownMention>()(
   "UnknownMention",
   {
@@ -37,9 +30,6 @@ export class UnknownMention extends Schema.TaggedError<UnknownMention>()(
   { httpApiStatus: 400 },
 ) {}
 
-/**
- * The only mention was the author. Mention someone else; a post never wakes its author.
- */
 export class SelfMentionOnly extends Schema.TaggedError<SelfMentionOnly>()(
   "SelfMentionOnly",
   {
@@ -52,7 +42,6 @@ export class SelfMentionOnly extends Schema.TaggedError<SelfMentionOnly>()(
   { httpApiStatus: 400 },
 ) {}
 
-/** The caller is not a joined member of the room. */
 export class NotMember extends Schema.TaggedError<NotMember>()(
   "NotMember",
   {
@@ -65,7 +54,6 @@ export class NotMember extends Schema.TaggedError<NotMember>()(
   { httpApiStatus: 403 },
 ) {}
 
-/** Join only works after an invite. */
 export class NotInvited extends Schema.TaggedError<NotInvited>()(
   "NotInvited",
   {
@@ -78,7 +66,6 @@ export class NotInvited extends Schema.TaggedError<NotInvited>()(
   { httpApiStatus: 403 },
 ) {}
 
-/** Edit and redact apply only to the caller's own messages. */
 export class NotAuthor extends Schema.TaggedError<NotAuthor>()(
   "NotAuthor",
   {
@@ -91,7 +78,6 @@ export class NotAuthor extends Schema.TaggedError<NotAuthor>()(
   { httpApiStatus: 403 },
 ) {}
 
-/** The caller is authenticated but not allowed to perform the operation. */
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
   {
@@ -104,7 +90,6 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
   { httpApiStatus: 403 },
 ) {}
 
-/** The bearer token is missing or does not match an agent. */
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
   {
@@ -117,7 +102,6 @@ export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   { httpApiStatus: 401 },
 ) {}
 
-/** No room is stored under that id. */
 export class RoomNotFound extends Schema.TaggedError<RoomNotFound>()(
   "RoomNotFound",
   {
@@ -130,7 +114,6 @@ export class RoomNotFound extends Schema.TaggedError<RoomNotFound>()(
   { httpApiStatus: 404 },
 ) {}
 
-/** No message is stored at that sequence. */
 export class MessageNotFound extends Schema.TaggedError<MessageNotFound>()(
   "MessageNotFound",
   {
@@ -143,7 +126,6 @@ export class MessageNotFound extends Schema.TaggedError<MessageNotFound>()(
   { httpApiStatus: 404 },
 ) {}
 
-/** No agent is stored under that id. */
 export class AgentNotFound extends Schema.TaggedError<AgentNotFound>()(
   "AgentNotFound",
   {
@@ -156,7 +138,6 @@ export class AgentNotFound extends Schema.TaggedError<AgentNotFound>()(
   { httpApiStatus: 404 },
 ) {}
 
-/** A room with that display name already exists. */
 export class RoomNameTaken extends Schema.TaggedError<RoomNameTaken>()(
   "RoomNameTaken",
   {
@@ -169,7 +150,6 @@ export class RoomNameTaken extends Schema.TaggedError<RoomNameTaken>()(
   { httpApiStatus: 409 },
 ) {}
 
-/** A room needs at least one agent member to act as lead coordinator. */
 export class LeadRequired extends Schema.TaggedError<LeadRequired>()(
   "LeadRequired",
   {
@@ -182,7 +162,6 @@ export class LeadRequired extends Schema.TaggedError<LeadRequired>()(
   { httpApiStatus: 400 },
 ) {}
 
-/** The caller sent a field outside the accepted range. */
 export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
   "InvalidArgument",
   {
@@ -198,7 +177,6 @@ export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
   { httpApiStatus: 400 },
 ) {}
 
-/** The room could not finish a storage operation. The same call is safe to retry. */
 export class PersistenceFailed extends Schema.TaggedError<PersistenceFailed>()(
   "PersistenceFailed",
   {
@@ -211,7 +189,6 @@ export class PersistenceFailed extends Schema.TaggedError<PersistenceFailed>()(
   { httpApiStatus: 503 },
 ) {}
 
-/** A downstream call did not complete. Retry the same logical operation. */
 export class Unavailable extends Schema.TaggedError<Unavailable>()(
   "Unavailable",
   {
@@ -224,7 +201,6 @@ export class Unavailable extends Schema.TaggedError<Unavailable>()(
   { httpApiStatus: 503 },
 ) {}
 
-/** Public error envelope returned by MCP and the viewer API. */
 export const PublicError = Schema.Struct({
   code: Schema.String,
   message: Schema.String,
@@ -235,7 +211,6 @@ export const PublicError = Schema.Struct({
 
 const asDetails = (details: object): unknown => details
 
-/** Map a known tagged error onto the public envelope. */
 export const publicErrorBody = (error: {
   readonly code: string
   readonly message: string

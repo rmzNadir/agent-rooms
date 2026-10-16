@@ -47,7 +47,6 @@ import {
 } from "./room-http-api.ts"
 import RoomServer from "./room-server.ts"
 
-/** Failures a room call can return to the worker. */
 export type RoomCallError =
   | Unavailable
   | MentionRequired
@@ -80,13 +79,11 @@ const settle = <A>(effect: Effect.Effect<A, TransportError>, requestId: RequestI
     SchemaError: () => Effect.fail(down(requestId, operation)),
   })
 
-/** HttpApi encodes schema classes. Decode plain objects into those classes first. */
 const prepare = <A>(schema: Schema.Decoder<A>, payload: { readonly requestId: RequestId }, operation: string) =>
   Effect.catchTag(Schema.decodeUnknownEffect(schema)(payload), "SchemaError", () =>
     Effect.fail(down(payload.requestId, operation)),
   )
 
-/** Application-facing room operations. The only module that touches room stubs. */
 export interface IRoomClient {
   readonly init: (roomId: RoomId, payload: InitRoomPayload) => Effect.Effect<RoomSummary, RoomCallError>
   readonly postMessage: (roomId: RoomId, payload: PostPayload) => Effect.Effect<MessagePage, RoomCallError>
@@ -112,13 +109,8 @@ export interface IRoomClient {
   ) => Effect.Effect<HttpServerResponse, RoomCallError>
 }
 
-/**
- * Room calls keyed by canonical `RoomId`. Stub clients live only for the
- * current invocation.
- */
 export class RoomClient extends Context.Service<RoomClient, IRoomClient>()("@agent-rooms/RoomClient") {}
 
-/** Builds the room client. Runtime code uses the layer. */
 export const makeRoomClient = Effect.gen(function* () {
   const namespace = yield* RoomServer
   const clients = yield* makeExecutionMemo(
@@ -246,8 +238,4 @@ export const makeRoomClient = Effect.gen(function* () {
   })
 })
 
-/** Room client with its Durable Object requirement still open. */
-export const roomClientLayerWithoutDependencies = Layer.effect(RoomClient, makeRoomClient)
-
-/** Production room client. The worker context supplies `RoomServer`. */
-export const roomClientLayer = roomClientLayerWithoutDependencies
+export const roomClientLayer = Layer.effect(RoomClient, makeRoomClient)

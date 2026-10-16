@@ -42,7 +42,6 @@ import { roomClientLayer } from "../room/room-client.ts"
 
 const decodeRoomName = Schema.decodeUnknownEffect(RoomName)
 
-/** Failures the MCP adapter and the viewer can surface. */
 export type ChatError =
   | RoomCallError
   | DirectoryCallError
@@ -63,7 +62,6 @@ export type ChatError =
   | PersistenceFailed
   | Unavailable
 
-/** Operations the MCP adapter and the viewer call. */
 export interface IChat {
   readonly whoami: (actor: Actor) => IdentityView
   readonly listRooms: (actor: Actor, requestId: RequestId) => Effect.Effect<ReadonlyArray<RoomSummary>, ChatError>
@@ -183,7 +181,6 @@ export interface IChat {
   ) => Effect.Effect<HttpServerResponse, ChatError>
 }
 
-/** Chat application service over the room and directory clients. */
 export class Chat extends Context.Service<Chat, IChat>()("@agent-rooms/Chat") {}
 
 const badName = (requestId: RequestId) =>
@@ -206,7 +203,6 @@ const idFailed = (operation: string) =>
     retryable: true,
   })
 
-/** Builds chat from the room and directory clients. */
 export const makeChat = Effect.gen(function* () {
   const rooms = yield* RoomClient
   const directory = yield* DirectoryClient
@@ -400,10 +396,8 @@ export const makeChat = Effect.gen(function* () {
   })
 })
 
-/** Chat without choosing client implementations. */
 export const chatLayerWithoutDependencies = Layer.effect(Chat, makeChat)
 
-/** Chat with the production room and directory clients. */
 export const chatLayer = chatLayerWithoutDependencies.pipe(
   Layer.provide(roomClientLayer),
   Layer.provide(directoryClientLayer),

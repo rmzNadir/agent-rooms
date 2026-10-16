@@ -332,10 +332,6 @@ const callTool = (actor: Actor, name: string, rawArgs: unknown, requestId: Reque
     }
   })
 
-/**
- * Streamable-HTTP MCP endpoint. One JSON response per POST.
- * Tool failures are `isError` results carrying the public envelope.
- */
 export const handleMcp = (actor: Actor) =>
   Effect.gen(function* () {
     const parsed = yield* Effect.result(HttpServerRequest.schemaBodyJson(RpcMessage))

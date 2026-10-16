@@ -43,7 +43,6 @@ const postFailure = [
   PersistenceFailed,
 ] as const
 
-/** Member seeded when a room Durable Object is created. */
 export class InitMember extends Schema.Class<InitMember>("InitMember")({
   agentId: AgentId,
   displayName: Schema.String,
@@ -53,7 +52,6 @@ export class InitMember extends Schema.Class<InitMember>("InitMember")({
   webhookSecret: Schema.NullOr(Schema.String),
 }) {}
 
-/** Create the room row, lead, and initial members. Idempotent for the same id. */
 export class InitRoomPayload extends Schema.Class<InitRoomPayload>("InitRoomPayload")({
   requestId: RequestId,
   roomId: RoomId,
@@ -63,7 +61,6 @@ export class InitRoomPayload extends Schema.Class<InitRoomPayload>("InitRoomPayl
   members: Schema.Array(InitMember),
 }) {}
 
-/** Invite an agent. They are not joined until they call join. */
 export class InvitePayload extends Schema.Class<InvitePayload>("InvitePayload")({
   requestId: RequestId,
   actor: Actor,
@@ -74,7 +71,6 @@ export class InvitePayload extends Schema.Class<InvitePayload>("InvitePayload")(
   webhookSecret: Schema.NullOr(Schema.String),
 }) {}
 
-/** Join a room the caller was invited to. */
 export class JoinPayload extends Schema.Class<JoinPayload>("JoinPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -82,19 +78,16 @@ export class JoinPayload extends Schema.Class<JoinPayload>("JoinPayload")({
   webhookSecret: Schema.NullOr(Schema.String),
 }) {}
 
-/** Leave a room. The lead role moves to another member when one exists. */
 export class LeavePayload extends Schema.Class<LeavePayload>("LeavePayload")({
   requestId: RequestId,
   actor: Actor,
 }) {}
 
-/** List members. */
 export class MembersPayload extends Schema.Class<MembersPayload>("MembersPayload")({
   requestId: RequestId,
   actor: Actor,
 }) {}
 
-/** Post a message. Agents must mention a target. */
 export class PostPayload extends Schema.Class<PostPayload>("PostPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -104,7 +97,6 @@ export class PostPayload extends Schema.Class<PostPayload>("PostPayload")({
   replyTo: Schema.NullOr(Schema.Number),
 }) {}
 
-/** Read messages strictly after `since`. */
 export class ReadPayload extends Schema.Class<ReadPayload>("ReadPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -113,7 +105,6 @@ export class ReadPayload extends Schema.Class<ReadPayload>("ReadPayload")({
   thread: Schema.NullOr(Schema.Number),
 }) {}
 
-/** Render a transcript page. */
 export class TranscriptPayload extends Schema.Class<TranscriptPayload>("TranscriptPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -123,14 +114,12 @@ export class TranscriptPayload extends Schema.Class<TranscriptPayload>("Transcri
   format: Schema.Literals(["markdown", "json"]),
 }) {}
 
-/** List thread roots. */
 export class ThreadsPayload extends Schema.Class<ThreadsPayload>("ThreadsPayload")({
   requestId: RequestId,
   actor: Actor,
   limit: Schema.Number,
 }) {}
 
-/** Search message bodies in this room. */
 export class SearchPayload extends Schema.Class<SearchPayload>("SearchPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -138,7 +127,6 @@ export class SearchPayload extends Schema.Class<SearchPayload>("SearchPayload")(
   limit: Schema.Number,
 }) {}
 
-/** Long-poll for messages after `since`. The server caps the wait at 25 seconds. */
 export class WaitPayload extends Schema.Class<WaitPayload>("WaitPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -147,20 +135,17 @@ export class WaitPayload extends Schema.Class<WaitPayload>("WaitPayload")({
   timeoutMs: Schema.Number,
 }) {}
 
-/** Unread count for the caller. */
 export class UnreadPayload extends Schema.Class<UnreadPayload>("UnreadPayload")({
   requestId: RequestId,
   actor: Actor,
 }) {}
 
-/** Advance the caller's read cursor. */
 export class MarkReadPayload extends Schema.Class<MarkReadPayload>("MarkReadPayload")({
   requestId: RequestId,
   actor: Actor,
   seq: Schema.Number,
 }) {}
 
-/** Toggle a reaction on a message. */
 export class ReactPayload extends Schema.Class<ReactPayload>("ReactPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -168,7 +153,6 @@ export class ReactPayload extends Schema.Class<ReactPayload>("ReactPayload")({
   emoji: Schema.String,
 }) {}
 
-/** Replace the caller's own message body. Edits do not wake members. */
 export class EditPayload extends Schema.Class<EditPayload>("EditPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -177,14 +161,12 @@ export class EditPayload extends Schema.Class<EditPayload>("EditPayload")({
   mentions: Schema.Array(Schema.String),
 }) {}
 
-/** Replace the caller's own message body with a redaction marker. */
 export class RedactPayload extends Schema.Class<RedactPayload>("RedactPayload")({
   requestId: RequestId,
   actor: Actor,
   seq: Schema.Number,
 }) {}
 
-/** Update the webhook copied onto this membership. */
 export class WebhookPayload extends Schema.Class<WebhookPayload>("WebhookPayload")({
   requestId: RequestId,
   actor: Actor,
@@ -192,24 +174,20 @@ export class WebhookPayload extends Schema.Class<WebhookPayload>("WebhookPayload
   webhookSecret: Schema.NullOr(Schema.String),
 }) {}
 
-/** Transcript text plus the next cursor. */
 export class TranscriptResult extends Schema.Class<TranscriptResult>("TranscriptResult")({
   text: Schema.String,
   format: Schema.Literals(["markdown", "json"]),
   nextCursor: Schema.NullOr(Schema.Number),
 }) {}
 
-/** Members of one room. */
 export class MemberList extends Schema.Class<MemberList>("MemberList")({
   members: Schema.Array(MemberView),
 }) {}
 
-/** Thread summaries. */
 export class ThreadList extends Schema.Class<ThreadList>("ThreadList")({
   threads: Schema.Array(ThreadSummary),
 }) {}
 
-/** Empty success for leave and mark-read. */
 export class Ack extends Schema.Class<Ack>("Ack")({
   ok: Schema.Literal(true),
 }) {}
@@ -316,7 +294,6 @@ const webhook = HttpApiEndpoint.post("webhook", "/v1/webhook", {
   error: roomFailure,
 })
 
-/** Versioned HTTP contract for one Room Durable Object. */
 export class RoomGroup extends HttpApiGroup.make("room")
   .add(init)
   .add(invite)
@@ -336,5 +313,4 @@ export class RoomGroup extends HttpApiGroup.make("room")
   .add(redact)
   .add(webhook) {}
 
-/** Room HTTP API served on the Durable Object `fetch`. */
 export class RoomHttpApi extends HttpApi.make("RoomHttpApi").add(RoomGroup) {}

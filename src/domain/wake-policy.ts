@@ -1,35 +1,27 @@
 import type { AgentId } from "./ids.ts"
 import type { MemberKind } from "./actor.ts"
 
-/** Agent-to-agent wakes allowed before the room pauses and notifies the human. */
 export const HOP_LIMIT = 20
 
-/** Mentions for one agent collapse into a single wake after this quiet period. */
 export const DEBOUNCE_MS = 3_000
 
-/** Minimum gap between webhook deliveries to the same agent. */
 export const COOLDOWN_MS = 5_000
 
-/** `wait_for_messages` never holds a request longer than this. */
 export const MAX_WAIT_MS = 25_000
 
-/** Webhook attempts before the room stops retrying that delivery. */
 export const MAX_WAKE_ATTEMPTS = 8
 
-/** A member the wake planner can address. */
 export type WakeMember = {
   readonly agentId: AgentId
   readonly displayName: string
   readonly kind: MemberKind
 }
 
-/** Why a post was refused before it was stored. */
 export type WakeRejection =
   | { readonly _tag: "RejectUntagged" }
   | { readonly _tag: "UnknownMention"; readonly token: string }
   | { readonly _tag: "SelfMentionOnly" }
 
-/** What to store and who to wake after a post is accepted. */
 export type WakeAcceptance = {
   readonly _tag: "Accept"
   readonly targets: ReadonlyArray<AgentId>
@@ -44,9 +36,6 @@ export type WakePlan = WakeRejection | WakeAcceptance
 
 const mentionPattern = /@([A-Za-z0-9_-]+)/g
 
-/**
- * Pull `@tokens` out of a message body. The `@` is not part of the token.
- */
 export const tokensInBody = (body: string): ReadonlyArray<string> => {
   const found: string[] = []
   for (const match of body.matchAll(mentionPattern)) {
@@ -70,13 +59,6 @@ const resolveToken = (
   return { _tag: "Unknown" }
 }
 
-/**
- * Decide whether a post is stored and which agents it wakes.
- *
- * Agents must name a real target. Untagged human posts wake every agent
- * (`@all`). The author is never a target. After {@link HOP_LIMIT} agent-to-agent
- * wakes with no human post, further agent wakes pause until a human writes.
- */
 export const planPost = (input: {
   readonly authorId: AgentId
   readonly authorKind: MemberKind
@@ -153,28 +135,24 @@ export const planPost = (input: {
   }
 }
 
-/**
- * When a webhook for this agent may be sent. Each new mention resets the
- * debounce, and a delivery cannot start inside the cooldown.
- */
 export const deliveryNotBefore = (now: number, lastDeliveredAt: number | undefined): number => {
   const debounced = now + DEBOUNCE_MS
   if (lastDeliveredAt === undefined) return debounced
   return Math.max(debounced, lastDeliveredAt + COOLDOWN_MS)
 }
 
-/** Delay before the next webhook attempt. Attempt 1 waits 2s, then doubles, capped at 30s. */
+const retryBaseMs = 1_000
+const retryCapMs = 30_000
+
 export const retryDelayMs = (attempts: number): number => {
   const exponent = Math.min(Math.max(attempts, 1), 5)
-  return Math.min(30_000, 1_000 * 2 ** exponent)
+  return Math.min(retryCapMs, retryBaseMs * 2 ** exponent)
 }
 
-/** How long a delivery owns the outbox row while the webhook request is in flight. */
-export const WAKE_CLAIM_MS = 60_000
+export const outboxClaimMs = 60_000
 
 export type WakeStatus = "delivered" | "busy" | "failed"
 
-/** `202` means the listener is already running that room and did not start another process. */
 export const classifyWakeStatus = (status: number): WakeStatus => {
   if (status === 202) return "busy"
   if (status >= 200 && status < 300) return "delivered"

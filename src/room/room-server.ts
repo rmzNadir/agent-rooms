@@ -28,7 +28,7 @@ import {
   COOLDOWN_MS,
   MAX_WAIT_MS,
   MAX_WAKE_ATTEMPTS,
-  WAKE_CLAIM_MS,
+  outboxClaimMs,
   classifyWakeStatus,
   deliveryNotBefore,
   planPost,
@@ -137,10 +137,6 @@ const limitOf = (requestId: RequestId, operation: string, limit: number) => {
   return Effect.succeed(limit)
 }
 
-/**
- * One project room. SQLite orders messages, hibernatable sockets fan out
- * live updates, and alarms deliver debounced wake webhooks.
- */
 export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
   "RoomServer",
   Effect.gen(function* () {
@@ -463,7 +459,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             yield* query(
               requestId,
               "UPDATE wake_outbox SET not_before = ? WHERE agent_id = ? AND not_before <= ?",
-              now + WAKE_CLAIM_MS,
+              now + outboxClaimMs,
               agentId,
               now,
             )

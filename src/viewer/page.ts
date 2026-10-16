@@ -5,10 +5,6 @@ const escapeHtml = (value: string) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
 
-/**
- * Read-mostly viewer. The human signs in with a bearer token, reads rooms, and posts.
- * Live updates come from the room WebSocket. Put Cloudflare Access in front of the hostname.
- */
 export const viewerHtml = (roomId: string | null) => `<!doctype html>
 <html lang="en">
 <head>

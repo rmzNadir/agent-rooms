@@ -3,7 +3,6 @@ import { HttpServerResponse } from "effect/http"
 import type { ChatError } from "../app/chat.ts"
 import { publicErrorBody } from "../domain/errors.ts"
 
-/** JSON response. Encoding failures are defects: the body is a value we just built. */
 export const json = (status: number, body: unknown) =>
   Effect.catchTag(HttpServerResponse.json(body, { status }), "HttpBodyError", () =>
     Effect.die("The response could not be encoded."),
@@ -36,12 +35,8 @@ const statusFor = (error: ChatError): number => {
   }
 }
 
-/** Public error envelope for a known chat failure. */
 export const errorResponse = (error: ChatError) => json(statusFor(error), publicErrorBody(error))
 
-/**
- * Run a chat effect. Success becomes JSON. Each known failure becomes the public envelope.
- */
 export const finish = <A, R>(effect: Effect.Effect<A, ChatError, R>) =>
   Effect.catchTags(Effect.flatMap(effect, (value) => json(200, value)), {
     MentionRequired: errorResponse,
@@ -62,7 +57,6 @@ export const finish = <A, R>(effect: Effect.Effect<A, ChatError, R>) =>
     Unavailable: errorResponse,
   })
 
-/** Same translation as {@link finish}, when the success is already a response. */
 export const finishResponse = <R>(effect: Effect.Effect<HttpServerResponse.HttpServerResponse, ChatError, R>) =>
   Effect.catchTags(effect, {
     MentionRequired: errorResponse,

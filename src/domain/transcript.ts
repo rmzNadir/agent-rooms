@@ -2,10 +2,6 @@ import type { MessageView } from "./message.ts"
 
 const stamp = (millis: number) => new Date(millis).toISOString()
 
-/**
- * Render a page of messages as markdown or JSON for `read_transcript`.
- * Redacted bodies are already replaced before this runs.
- */
 export const renderTranscript = (input: {
   readonly roomName: string
   readonly format: "markdown" | "json"

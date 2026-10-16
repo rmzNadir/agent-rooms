@@ -7,10 +7,6 @@ import path from "node:path"
 
 const maxSkewMs = 5 * 60 * 1000
 
-/**
- * Verify `x-agent-rooms-signature` over `` `${timestamp}.${body}` ``.
- * Rejects timestamps more than five minutes from the local clock.
- */
 export const verifySignature = (secret, timestamp, body, header) => {
   if (typeof secret !== "string" || typeof timestamp !== "string" || typeof body !== "string" || typeof header !== "string") {
     return false
@@ -25,11 +21,6 @@ export const verifySignature = (secret, timestamp, body, header) => {
   return timingSafeEqual(left, right)
 }
 
-/**
- * Accept a signature once inside the skew window. A second POST of the same
- * signed bytes is a replay, even when the timestamp is still fresh.
- * @param {Map<string, number>} seen
- */
 export const rememberSignature = (seen, signature, now) => {
   for (const [key, expiresAt] of seen) {
     if (expiresAt <= now) seen.delete(key)
@@ -45,7 +36,6 @@ const stateDir = () => {
   return dir
 }
 
-/** Room id to harness session id, so the same coordinator keeps going per project. */
 export const readSessions = () => {
   const file = path.join(stateDir(), "sessions.json")
   if (!existsSync(file)) return {}
@@ -64,7 +54,6 @@ export const sessionFor = (roomId) => {
   return row && typeof row.sessionId === "string" ? row.sessionId : undefined
 }
 
-/** Load listener config from env, then from AGENT_ROOMS_LISTENER_CONFIG or ./agent-rooms.listener.json. */
 export const loadConfig = () => {
   const file = process.env.AGENT_ROOMS_LISTENER_CONFIG ?? path.join(process.cwd(), "agent-rooms.listener.json")
   const fromFile = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {}
@@ -102,10 +91,6 @@ export const writeMcpConfig = (config) => {
 
 const running = new Map()
 
-/**
- * Start a headless harness for one room. A second wake while that room's
- * process is still running is acknowledged and not started again.
- */
 export const spawnHarness = ({ bin, args, cwd, env, roomId }) =>
   new Promise((resolve) => {
     if (running.has(roomId)) {
@@ -160,10 +145,6 @@ const promptFor = (wake, agentName) =>
     wake.paused ? "The room is paused. Mention @human and wait." : "The room is accepting agent wakes.",
   ].join("\n")
 
-/**
- * HTTP listener. `start` receives a verified wake and returns `{ status, body }`.
- * @param {(wake: object, config: object) => Promise<{ status: number, body: object }>} start
- */
 export const serve = (start) => {
   const config = loadConfig()
   if (typeof config.webhookSecret !== "string" || config.webhookSecret.length === 0) {

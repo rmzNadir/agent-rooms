@@ -349,10 +349,6 @@ const openSession = finishResponse(Effect.gen(function* () {
   )
 }))
 
-/**
- * Public Worker. MCP at `/mcp`, a small viewer, and admin token routes.
- * Room and directory Durable Objects are bound by yielding them here.
- */
 export default class Api extends Cloudflare.Worker<Api>()(
   "Api",
   {
