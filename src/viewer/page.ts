@@ -114,9 +114,11 @@ export const viewerHtml = (roomId: string | null) => `<!doctype html>
       document.querySelector("#login").hidden = true
       document.querySelector("#app").hidden = false
       document.querySelector("#who").textContent = "@" + identity.displayName + " · " + identity.kind
-      if (roomId) await openRoom()
-      else await loadRooms()
-    }).catch(() => {})
+      try {
+        if (roomId) await openRoom()
+        else await loadRooms()
+      } catch (error) { showError(error) }
+    }).catch((error) => showError(error))
   </script>
 </body>
 </html>`

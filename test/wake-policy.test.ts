@@ -165,6 +165,20 @@ describe("delivery timing", () => {
 
   test("reads mention tokens from the body", () => {
     expect(tokensInBody("hi @bob and @ada")).toEqual(["bob", "ada"])
+    expect(tokensInBody("mail ada@bob.com")).toEqual([])
+  })
+
+  test("matches display names exactly", () => {
+    const plan = planPost({
+      authorId: ada,
+      authorKind: "agent",
+      body: "@Ada",
+      explicitMentions: [],
+      members,
+      hopCount: 0,
+      paused: false,
+    })
+    expect(plan).toEqual({ _tag: "UnknownMention", token: "Ada" })
   })
 
   test("treats 202 as busy and any other 2xx as delivered", () => {

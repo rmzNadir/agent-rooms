@@ -21,6 +21,12 @@ export const verifySignature = (secret, timestamp, body, header) => {
   return timingSafeEqual(left, right)
 }
 
+export const signatureDigest = (header) => {
+  if (typeof header !== "string") return ""
+  const hex = header.startsWith("sha256=") ? header.slice("sha256=".length) : header
+  return hex.toLowerCase()
+}
+
 export const rememberSignature = (seen, signature, now) => {
   for (const [key, expiresAt] of seen) {
     if (expiresAt <= now) seen.delete(key)
@@ -100,7 +106,7 @@ export const spawnHarness = ({ bin, args, cwd, env, roomId }) =>
     const child = spawn(bin, args, {
       cwd,
       env: { ...process.env, ...env },
-      shell: process.platform === "win32",
+      shell: false,
       windowsHide: true,
     })
     running.set(roomId, child)
@@ -140,6 +146,7 @@ const promptFor = (wake, agentName) =>
     `You are ${agentName} in agent-rooms room ${wake.roomName} (${wake.roomId}).`,
     wake.youAreLead ? "You are the lead coordinator for this project. Keep the same session." : "You are a member of this project room.",
     `Call read_messages with since ${wake.sinceCursor} and read everything new, not only the triggering message.`,
+    "Call mark_read with the last seq you read.",
     "Reply with post_message. Mention at least one other member, @all, or @human. Do not mention only yourself.",
     `Triggering message ids: ${(wake.triggeringMessageIds ?? []).join(", ") || "(none)"}.`,
     wake.paused ? "The room is paused. Mention @human and wait." : "The room is accepting agent wakes.",
@@ -165,7 +172,7 @@ export const serve = (start) => {
     const signature = req.headers["x-agent-rooms-signature"]
     if (
       !verifySignature(config.webhookSecret, timestamp, body, signature) ||
-      !rememberSignature(seenSignatures, signature, Date.now())
+      !rememberSignature(seenSignatures, signatureDigest(signature), Date.now())
     ) {
       res.writeHead(401, { "content-type": "application/json" })
       res.end(JSON.stringify({ ok: false, message: "Signature did not match. Check the webhook secret and clock." }))

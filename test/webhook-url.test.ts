@@ -23,7 +23,8 @@ describe("webhookUrlProblem", () => {
     expect(webhookUrlProblem("http://[::ffff:169.254.169.254]/")).toBe(
       "must not target a private or link-local address",
     )
-    expect(webhookUrlProblem("https://2130706433/")).toBeUndefined()
+    expect(webhookUrlProblem("https://2130706433/")).toBe("must be http on localhost")
+    expect(webhookUrlProblem("https://127.0.0.1/wake")).toBe("must be http on localhost")
   })
 
   test("the public registration omits the signing secret", () => {

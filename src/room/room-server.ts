@@ -468,7 +468,16 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
           }),
         )
         if (claimed !== 1) return
-        const parsedIds = yield* decodeStoredJson(String(row.message_ids_json)).pipe(
+        const sentIds = String(row.message_ids_json)
+        const mutateOutbox = (sql: string, ...bindings: Array<string | number>) =>
+          current.storage.transaction(
+            Effect.gen(function* () {
+              yield* query(requestId, sql, ...bindings)
+              const changed = yield* query(requestId, "SELECT changes() AS n")
+              return Number(changed[0]?.n ?? 0)
+            }),
+          )
+        const parsedIds = yield* decodeStoredJson(sentIds).pipe(
           Effect.catchTag("SchemaError", () => Effect.succeed(emptyStored)),
         )
         const triggeringMessageIds = yield* decodeStringList(parsedIds).pipe(
@@ -507,17 +516,21 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         )
         const outcome = attempted._tag === "Success" ? classifyWakeStatus(attempted.value.status) : "failed"
         if (outcome === "busy") {
-          yield* query(
-            requestId,
-            "UPDATE wake_outbox SET not_before = ? WHERE agent_id = ?",
+          yield* mutateOutbox(
+            "UPDATE wake_outbox SET not_before = ? WHERE agent_id = ? AND message_ids_json = ?",
             now + COOLDOWN_MS,
             agentId,
+            sentIds,
           )
           yield* scheduleWake(agentId, COOLDOWN_MS, requestId)
           return
         }
         if (outcome === "delivered") {
-          yield* query(requestId, "DELETE FROM wake_outbox WHERE agent_id = ?", agentId)
+          const removed = yield* mutateOutbox(
+            "DELETE FROM wake_outbox WHERE agent_id = ? AND message_ids_json = ?",
+            agentId,
+            sentIds,
+          )
           yield* query(
             requestId,
             `INSERT INTO wake_delivery (agent_id, last_delivered_at) VALUES (?, ?)
@@ -525,22 +538,29 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             agentId,
             now,
           )
+          if (removed !== 1) yield* scheduleWake(agentId, COOLDOWN_MS, requestId)
           return
         }
         const nextAttempts = attempts + 1
         if (nextAttempts >= MAX_WAKE_ATTEMPTS) {
-          yield* query(requestId, "DELETE FROM wake_outbox WHERE agent_id = ?", agentId)
+          const removed = yield* mutateOutbox(
+            "DELETE FROM wake_outbox WHERE agent_id = ? AND message_ids_json = ?",
+            agentId,
+            sentIds,
+          )
+          if (removed !== 1) yield* scheduleWake(agentId, COOLDOWN_MS, requestId)
           return
         }
         const delay = retryDelayMs(nextAttempts)
-        yield* query(
-          requestId,
-          "UPDATE wake_outbox SET attempts = ?, not_before = ? WHERE agent_id = ?",
+        const updated = yield* mutateOutbox(
+          "UPDATE wake_outbox SET attempts = ?, not_before = ? WHERE agent_id = ? AND message_ids_json = ?",
           nextAttempts,
           now + delay,
           agentId,
+          sentIds,
         )
-        yield* scheduleWake(agentId, delay, requestId)
+        if (updated === 1) yield* scheduleWake(agentId, delay, requestId)
+        else yield* scheduleWake(agentId, COOLDOWN_MS, requestId)
       })
 
       const registered = yield* Alchemy.makeCallback(
@@ -774,23 +794,32 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
       const leave = Effect.fn("RoomServer.leave")(function* (payload: LeavePayload) {
         const { id, members, member } = yield* requireJoined(payload.actor, payload.requestId)
         const remaining = members.filter((item) => item.agentId !== member.agentId && item.joined)
-        if (member.role === "lead") {
-          const next = remaining.find((item) => item.kind === "agent") ?? remaining[0]
-          if (next === undefined) {
-            return yield* new Forbidden({
-              code: "Forbidden",
-              operation: "leave",
-              message: `You are the only member of room ${id}. Invite someone else before leaving.`,
-              requestId: payload.requestId,
-              details: {},
-              retryable: false,
-            })
-          }
-          yield* query(payload.requestId, "UPDATE members SET role = 'member' WHERE agent_id = ?", member.agentId)
-          yield* query(payload.requestId, "UPDATE members SET role = 'lead' WHERE agent_id = ?", next.agentId)
-          yield* query(payload.requestId, "UPDATE room_flags SET lead_id = ? WHERE id = 1", next.agentId)
+        const next = member.role === "lead" ? (remaining.find((item) => item.kind === "agent") ?? remaining[0]) : undefined
+        if (member.role === "lead" && next === undefined) {
+          return yield* new Forbidden({
+            code: "Forbidden",
+            operation: "leave",
+            message: `You are the only member of room ${id}. Invite someone else before leaving.`,
+            requestId: payload.requestId,
+            details: {},
+            retryable: false,
+          })
         }
-        yield* query(payload.requestId, "DELETE FROM members WHERE agent_id = ?", member.agentId)
+        const current = yield* Cloudflare.DurableObjectState
+        yield* current.storage.transaction(
+          Effect.gen(function* () {
+            if (next !== undefined) {
+              yield* query(payload.requestId, "UPDATE members SET role = 'member' WHERE agent_id = ?", member.agentId)
+              yield* query(payload.requestId, "UPDATE members SET role = 'lead' WHERE agent_id = ?", next.agentId)
+              yield* query(payload.requestId, "UPDATE room_flags SET lead_id = ? WHERE id = 1", next.agentId)
+            }
+            yield* query(payload.requestId, "DELETE FROM members WHERE agent_id = ?", member.agentId)
+          }),
+        ).pipe(
+          Effect.catchTag("DurableObjectStorageError", () =>
+            Effect.fail(persist(payload.requestId, "leave")),
+          ),
+        )
         return new Ack({ ok: true })
       })
 
@@ -1027,6 +1056,9 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
 
       const wait = Effect.fn("RoomServer.wait")(function* (payload: WaitPayload) {
         yield* requireJoined(payload.actor, payload.requestId)
+        if (!Number.isInteger(payload.since) || payload.since < 0) {
+          return yield* invalid(payload.requestId, "wait_for_messages", "since", "must be a non-negative integer")
+        }
         const limit = yield* limitOf(payload.requestId, "wait_for_messages", payload.limit)
         const timeout = Math.min(Math.max(payload.timeoutMs, 0), MAX_WAIT_MS)
         const deadline = Date.now() + timeout
@@ -1059,12 +1091,29 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         if (!Number.isInteger(payload.seq) || payload.seq < 0) {
           return yield* invalid(payload.requestId, "mark_read", "seq", "must be a non-negative integer")
         }
-        const next = Math.max(member.lastReadSeq, payload.seq)
-        yield* query(
-          payload.requestId,
-          "UPDATE members SET last_read_seq = ? WHERE agent_id = ?",
-          next,
-          member.agentId,
+        const current = yield* Cloudflare.DurableObjectState
+        yield* current.storage.transaction(
+          Effect.gen(function* () {
+            const latest = yield* query(payload.requestId, "SELECT COALESCE(MAX(seq), 0) AS seq FROM messages")
+            const cap = Number(latest[0]?.seq ?? 0)
+            const row = yield* query(
+              payload.requestId,
+              "SELECT last_read_seq FROM members WHERE agent_id = ?",
+              member.agentId,
+            )
+            const currentRead = Number(row[0]?.last_read_seq ?? member.lastReadSeq)
+            const next = Math.min(cap, Math.max(currentRead, payload.seq))
+            yield* query(
+              payload.requestId,
+              "UPDATE members SET last_read_seq = ? WHERE agent_id = ?",
+              next,
+              member.agentId,
+            )
+          }),
+        ).pipe(
+          Effect.catchTag("DurableObjectStorageError", () =>
+            Effect.fail(persist(payload.requestId, "mark_read")),
+          ),
         )
         return yield* unread(payload)
       })
@@ -1085,30 +1134,39 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             retryable: false,
           })
         }
-        const current = yield* query(
-          payload.requestId,
-          "SELECT 1 AS present FROM reactions WHERE seq = ? AND agent_id = ? AND emoji = ?",
-          payload.seq,
-          member.agentId,
-          payload.emoji,
+        const state = yield* Cloudflare.DurableObjectState
+        yield* state.storage.transaction(
+          Effect.gen(function* () {
+            const present = yield* query(
+              payload.requestId,
+              "SELECT 1 AS present FROM reactions WHERE seq = ? AND agent_id = ? AND emoji = ?",
+              payload.seq,
+              member.agentId,
+              payload.emoji,
+            )
+            if (present.length === 0) {
+              yield* query(
+                payload.requestId,
+                "INSERT INTO reactions (seq, agent_id, emoji) VALUES (?, ?, ?)",
+                payload.seq,
+                member.agentId,
+                payload.emoji,
+              )
+            } else {
+              yield* query(
+                payload.requestId,
+                "DELETE FROM reactions WHERE seq = ? AND agent_id = ? AND emoji = ?",
+                payload.seq,
+                member.agentId,
+                payload.emoji,
+              )
+            }
+          }),
+        ).pipe(
+          Effect.catchTag("DurableObjectStorageError", () =>
+            Effect.fail(persist(payload.requestId, "react")),
+          ),
         )
-        if (current.length === 0) {
-          yield* query(
-            payload.requestId,
-            "INSERT INTO reactions (seq, agent_id, emoji) VALUES (?, ?, ?)",
-            payload.seq,
-            member.agentId,
-            payload.emoji,
-          )
-        } else {
-          yield* query(
-            payload.requestId,
-            "DELETE FROM reactions WHERE seq = ? AND agent_id = ? AND emoji = ?",
-            payload.seq,
-            member.agentId,
-            payload.emoji,
-          )
-        }
         const updated = yield* messageBySeq(payload.requestId, payload.seq)
         if (Option.isNone(updated)) return yield* persist(payload.requestId, "react")
         yield* publish(updated.value)
@@ -1116,6 +1174,9 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
       })
 
       const edit = Effect.fn("RoomServer.edit")(function* (payload: EditPayload) {
+        if (payload.body.trim().length === 0 || payload.body.length > 8_000) {
+          return yield* invalid(payload.requestId, "edit_message", "body", "must be 1 to 8000 characters")
+        }
         const { id, flags, members, member } = yield* requireJoined(payload.actor, payload.requestId)
         const existing = yield* messageBySeq(payload.requestId, payload.seq)
         if (Option.isNone(existing)) {
@@ -1191,11 +1252,21 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             retryable: false,
           })
         }
-        yield* query(
-          payload.requestId,
-          "UPDATE messages SET body = '[redacted]', redacted = 1, edited_at = ? WHERE seq = ?",
-          Date.now(),
-          payload.seq,
+        const state = yield* Cloudflare.DurableObjectState
+        yield* state.storage.transaction(
+          Effect.gen(function* () {
+            yield* query(
+              payload.requestId,
+              "UPDATE messages SET body = '[redacted]', mentions_json = '[]', redacted = 1, edited_at = ? WHERE seq = ?",
+              Date.now(),
+              payload.seq,
+            )
+            yield* query(payload.requestId, "DELETE FROM reactions WHERE seq = ?", payload.seq)
+          }),
+        ).pipe(
+          Effect.catchTag("DurableObjectStorageError", () =>
+            Effect.fail(persist(payload.requestId, "redact_message")),
+          ),
         )
         const updated = yield* messageBySeq(payload.requestId, payload.seq)
         if (Option.isNone(updated)) return yield* persist(payload.requestId, "redact_message")

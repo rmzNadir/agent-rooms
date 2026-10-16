@@ -34,7 +34,7 @@ export type WakeAcceptance = {
 
 export type WakePlan = WakeRejection | WakeAcceptance
 
-const mentionPattern = /@([A-Za-z0-9_-]+)/g
+const mentionPattern = /(?:^|[^A-Za-z0-9_])@([A-Za-z0-9_-]+)/g
 
 export const tokensInBody = (body: string): ReadonlyArray<string> => {
   const found: string[] = []
@@ -52,7 +52,7 @@ const resolveToken = (
   const normalized = token.toLowerCase()
   if (normalized === "all") return { _tag: "All" }
   if (normalized === "human") return { _tag: "Human" }
-  const byName = members.find((member) => member.displayName.toLowerCase() === normalized)
+  const byName = members.find((member) => member.displayName === token)
   if (byName !== undefined) return { _tag: "Agent", agentId: byName.agentId }
   const byId = members.find((member) => member.agentId === token)
   if (byId !== undefined) return { _tag: "Agent", agentId: byId.agentId }

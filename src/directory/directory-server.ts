@@ -14,6 +14,7 @@ import {
 } from "../domain/errors.ts"
 import { AgentId, makeAgentId, type RequestId, RoomId } from "../domain/ids.ts"
 import { IdentityView, RoomSummary } from "../domain/message.ts"
+import { decideAdmin } from "../domain/admin-auth.ts"
 import { hashToken, makeSecret } from "../domain/token.ts"
 import { webhookUrlProblem } from "../domain/webhook-url.ts"
 import {
@@ -187,10 +188,16 @@ export default class DirectoryServer extends Cloudflare.DurableObject<DirectoryS
         })
 
       const resolve = Effect.fn("DirectoryServer.resolve")(function* (payload: ResolvePayload) {
-        if (payload.tokenHash === payload.adminTokenHash) {
-          const existing = yield* query(payload.requestId, "SELECT * FROM agents WHERE admin = 1 LIMIT 1")
-          const row = existing[0]
-          if (row !== undefined) return yield* identityFrom(row, payload.requestId)
+        const existing = yield* query(payload.requestId, "SELECT * FROM agents WHERE admin = 1 LIMIT 1")
+        const row = existing[0]
+        const storedHash = row === undefined ? undefined : String(row.token_hash)
+        const decision = decideAdmin({
+          presentedHash: payload.tokenHash,
+          envHash: payload.adminTokenHash,
+          storedHash,
+        })
+        if (decision === "accept" && row !== undefined) return yield* identityFrom(row, payload.requestId)
+        if (decision === "bootstrap") {
           const name = yield* decodeName(payload.adminName).pipe(
             Effect.catchTag("SchemaError", () =>
               Effect.fail(

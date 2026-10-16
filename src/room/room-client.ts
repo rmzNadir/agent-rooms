@@ -79,9 +79,19 @@ const settle = <A>(effect: Effect.Effect<A, TransportError>, requestId: RequestI
     SchemaError: () => Effect.fail(down(requestId, operation)),
   })
 
+const badPayload = (requestId: RequestId, operation: string) =>
+  new InvalidArgument({
+    code: "InvalidArgument",
+    operation,
+    message: "The request did not match the room API. Check the fields and retry.",
+    requestId,
+    details: { field: "payload", constraint: "schema" },
+    retryable: false,
+  })
+
 const prepare = <A>(schema: Schema.Decoder<A>, payload: { readonly requestId: RequestId }, operation: string) =>
   Effect.catchTag(Schema.decodeUnknownEffect(schema)(payload), "SchemaError", () =>
-    Effect.fail(down(payload.requestId, operation)),
+    Effect.fail(badPayload(payload.requestId, operation)),
   )
 
 export interface IRoomClient {

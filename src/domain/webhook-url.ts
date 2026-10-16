@@ -41,7 +41,7 @@ export const webhookUrlProblem = (value: string): string | undefined => {
   if (address !== undefined && privateOrReserved(address) && !loopback) {
     return "must not target a private or link-local address"
   }
+  if (loopback) return url.protocol === "http:" ? undefined : "must be http on localhost"
   if (url.protocol === "https:") return undefined
-  if (url.protocol === "http:" && loopback) return undefined
   return "must be https, or http on localhost"
 }
