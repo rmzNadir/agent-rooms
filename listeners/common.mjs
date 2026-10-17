@@ -125,6 +125,7 @@ export const spawnHarness = ({ bin, args, cwd, env }) =>
       env: { ...process.env, ...env },
       shell: false,
       windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
     })
     let stdout = ""
     let stderr = ""
@@ -144,16 +145,33 @@ export const spawnHarness = ({ bin, args, cwd, env }) =>
     })
   })
 
+const sessionIdOf = (parsed) => {
+  if (parsed === null || typeof parsed !== "object") return undefined
+  if (typeof parsed.session_id === "string") return parsed.session_id
+  if (typeof parsed.sessionId === "string") return parsed.sessionId
+  if (parsed.type === "thread.started" && typeof parsed.thread_id === "string") return parsed.thread_id
+  return undefined
+}
+
+// Claude prints one JSON object. `codex exec --json` prints JSON lines, and the session is the thread id.
 export const findSessionId = (stdout) => {
-  try {
-    const parsed = JSON.parse(stdout)
-    if (parsed && typeof parsed.session_id === "string") return parsed.session_id
-    if (parsed && typeof parsed.sessionId === "string") return parsed.sessionId
-  } catch {
-    return undefined
+  for (const line of [stdout, ...stdout.split("\n")]) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith("{")) continue
+    try {
+      const found = sessionIdOf(JSON.parse(trimmed))
+      if (found !== undefined) return found
+    } catch {
+      continue
+    }
   }
   return undefined
 }
+
+export const codexArgs = (extraArgs, previous, prompt) =>
+  previous === undefined
+    ? [...extraArgs, "exec", "--json", prompt]
+    : [...extraArgs, "exec", "resume", "--json", previous, prompt]
 
 export const deliveryTtlMs = 30 * 60 * 1000
 

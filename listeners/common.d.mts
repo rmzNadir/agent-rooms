@@ -73,3 +73,11 @@ export function recordDelivery(
   deliveryId: string,
   now: number,
 ): "missing" | "duplicate" | "fresh"
+export function findSessionId(stdout: string): string | undefined
+export function codexArgs(extraArgs: ReadonlyArray<string>, previous: string | undefined, prompt: string): Array<string>
+export function spawnHarness(input: {
+  bin: string
+  args: ReadonlyArray<string>
+  cwd: string
+  env: Record<string, string | undefined>
+}): Promise<{ status: number; body: { ok: boolean; code?: number | null; stdout?: string; stderr?: string; message?: string } }>
