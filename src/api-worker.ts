@@ -2,6 +2,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import { Config, Effect, Layer, Redacted, Schema } from "effect"
 import { Headers, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { finish, finishResponse, json } from "./api/respond.ts"
+import { isHttps } from "./api/request-url.ts"
 import { Chat, chatLayer, type ChatError } from "./app/chat.ts"
 import { Actor } from "./domain/actor.ts"
 import { Forbidden, InvalidArgument, Unauthorized, Unavailable } from "./domain/errors.ts"
@@ -338,7 +339,7 @@ const openSession = finishResponse(Effect.gen(function* () {
       httpOnly: true,
       path: "/",
       sameSite: "lax",
-      secure: request.url.startsWith("https://"),
+      secure: isHttps(request),
     }),
     "CookiesError",
     () =>

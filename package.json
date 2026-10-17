@@ -9,9 +9,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "tsc --noEmit -p tsconfig.json && bun test test/wake-policy.test.ts test/transcript.test.ts test/listener-sign.test.ts test/webhook-url.test.ts test/admin-auth.test.ts test/wake-cursor.test.ts test/listener-flight.test.ts test/session-file.test.ts test/socket-close.test.ts test/harness.test.ts",
+    "check": "tsc --noEmit -p tsconfig.json && bun test test/wake-policy.test.ts test/transcript.test.ts test/listener-sign.test.ts test/webhook-url.test.ts test/admin-auth.test.ts test/wake-cursor.test.ts test/listener-flight.test.ts test/session-file.test.ts test/socket-close.test.ts test/harness.test.ts test/request-url.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test test/wake-policy.test.ts test/transcript.test.ts test/listener-sign.test.ts test/webhook-url.test.ts test/admin-auth.test.ts test/wake-cursor.test.ts test/listener-flight.test.ts test/session-file.test.ts test/socket-close.test.ts test/harness.test.ts",
+    "test": "bun test test/wake-policy.test.ts test/transcript.test.ts test/listener-sign.test.ts test/webhook-url.test.ts test/admin-auth.test.ts test/wake-cursor.test.ts test/listener-flight.test.ts test/session-file.test.ts test/socket-close.test.ts test/harness.test.ts test/request-url.test.ts",
     "test:integration": "bun test --timeout 180000 test/integration.test.ts",
     "dev": "alchemy dev",
     "deploy": "alchemy deploy",
