@@ -2,7 +2,7 @@ import { findSessionId, serve, sessionFor, spawnHarness, writeMcpConfig, writeSe
 
 serve(async (wake, config, prompt) => {
   const mcpConfig = writeMcpConfig(config)
-  const previous = sessionFor(wake.roomId)
+  const previous = sessionFor(wake.roomId, wake.agentId)
   const args = [
     ...config.claudeExtraArgs,
     "-p",
@@ -18,9 +18,8 @@ serve(async (wake, config, prompt) => {
     args,
     cwd: config.workdir,
     env: { AGENT_ROOMS_TOKEN: config.bearerToken },
-    roomId: wake.roomId,
   })
   const sessionId = findSessionId(result.body.stdout ?? "")
-  if (sessionId !== undefined) writeSession(wake.roomId, sessionId)
+  if (sessionId !== undefined) writeSession(wake.roomId, wake.agentId, sessionId)
   return result
 })

@@ -360,13 +360,54 @@ export default class DirectoryServer extends Cloudflare.DurableObject<DirectoryS
       })
 
       const putRoom = Effect.fn("DirectoryServer.putRoom")(function* (payload: PutRoomPayload) {
-        const clash = yield* query(
-          payload.requestId,
-          "SELECT id FROM rooms WHERE name = ? AND id != ?",
-          payload.name,
-          payload.roomId,
+        const current = yield* Cloudflare.DurableObjectState
+        const outcome = yield* current.storage.transaction(
+          Effect.gen(function* () {
+            const memberIds = payload.memberIds ?? []
+            for (const agentId of memberIds) {
+              const agent = yield* query(payload.requestId, "SELECT id FROM agents WHERE id = ?", agentId)
+              if (agent.length === 0) return { _tag: "MissingAgent" as const, agentId }
+            }
+            const clash = yield* query(
+              payload.requestId,
+              "SELECT id FROM rooms WHERE name = ? AND id != ?",
+              payload.name,
+              payload.roomId,
+            )
+            if (clash.length > 0) return { _tag: "Taken" as const }
+            yield* query(
+              payload.requestId,
+              `INSERT INTO rooms (id, name, topic, lead_id) VALUES (?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET name = excluded.name, topic = excluded.topic, lead_id = excluded.lead_id`,
+              payload.roomId,
+              payload.name,
+              payload.topic,
+              payload.leadId,
+            )
+            for (const agentId of memberIds) {
+              yield* query(
+                payload.requestId,
+                "INSERT INTO memberships (room_id, agent_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                payload.roomId,
+                agentId,
+              )
+            }
+            return { _tag: "Ok" as const }
+          }),
+        ).pipe(
+          Effect.catchTag("DurableObjectStorageError", () => Effect.fail(persist(payload.requestId, "create_room"))),
         )
-        if (clash.length > 0) {
+        if (outcome._tag === "MissingAgent") {
+          return yield* new InvalidArgument({
+            code: "InvalidArgument",
+            operation: "create_room",
+            message: `Agent ${outcome.agentId} was not found. Create the agent before adding them to the room.`,
+            requestId: payload.requestId,
+            details: { field: "members", constraint: "known agent" },
+            retryable: false,
+          })
+        }
+        if (outcome._tag === "Taken") {
           return yield* new RoomNameTaken({
             code: "RoomNameTaken",
             operation: "create_room",
@@ -376,15 +417,6 @@ export default class DirectoryServer extends Cloudflare.DurableObject<DirectoryS
             retryable: false,
           })
         }
-        yield* query(
-          payload.requestId,
-          `INSERT INTO rooms (id, name, topic, lead_id) VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET name = excluded.name, topic = excluded.topic, lead_id = excluded.lead_id`,
-          payload.roomId,
-          payload.name,
-          payload.topic,
-          payload.leadId,
-        )
         return new RoomSummary({
           roomId: payload.roomId,
           name: payload.name,

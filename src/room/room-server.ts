@@ -3,7 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import * as AlchemyHttp from "alchemy/Http"
 import { Duration, Effect, Layer, Option, Schema } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
-import { HttpRouter, HttpServerRequest } from "effect/http"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import type { Actor } from "../domain/actor.ts"
 import { MemberKind } from "../domain/actor.ts"
 import {
@@ -23,6 +23,8 @@ import { AgentId, internalRequestId, type RequestId, type RoomId, systemAgentId 
 import { MemberView, MessagePage, MessageView, ReactionView, RoomSummary, ThreadSummary, UnreadView } from "../domain/message.ts"
 import { renderTranscript } from "../domain/transcript.ts"
 import { decodeStoredJson, signPayload } from "../domain/token.ts"
+import { socketIdsForAgent } from "../domain/sockets.ts"
+import { clampCursor, extendSpan, openSpan, spanFromRow } from "../domain/wake-cursor.ts"
 import { webhookUrlProblem } from "../domain/webhook-url.ts"
 import {
   COOLDOWN_MS,
@@ -60,7 +62,7 @@ import {
   type WebhookPayload,
 } from "./room-http-api.ts"
 
-const SocketSession = Schema.Struct({ id: Schema.String })
+const SocketSession = Schema.Struct({ id: Schema.String, agentId: Schema.String })
 const WakeJob = Schema.Struct({ agentId: AgentId })
 const decodeWakeJob = Schema.decodeUnknownEffect(WakeJob)
 const decodeAgentId = Schema.decodeUnknownEffect(AgentId)
@@ -118,6 +120,7 @@ type MemberRow = {
   readonly role: "lead" | "member"
   readonly joined: boolean
   readonly lastReadSeq: number
+  readonly wakeSeq: number
   readonly webhookUrl: string | null
   readonly webhookSecret: string | null
 }
@@ -172,6 +175,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             role TEXT NOT NULL,
             joined INTEGER NOT NULL,
             last_read_seq INTEGER NOT NULL,
+            wake_seq INTEGER NOT NULL DEFAULT 0,
             webhook_url TEXT,
             webhook_secret TEXT
           )`,
@@ -199,6 +203,9 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             agent_id TEXT PRIMARY KEY,
             message_ids_json TEXT NOT NULL,
             since_seq INTEGER NOT NULL,
+            from_seq INTEGER NOT NULL DEFAULT 0,
+            to_seq INTEGER NOT NULL DEFAULT 0,
+            delivery_id TEXT NOT NULL DEFAULT '',
             not_before INTEGER NOT NULL,
             attempts INTEGER NOT NULL
           )`,
@@ -210,6 +217,20 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         for (const statement of statements) {
           yield* query(schemaRequestId, statement)
         }
+        const columnNames = (table: string) =>
+          Effect.map(
+            query(schemaRequestId, `PRAGMA table_info(${table})`),
+            (rows) => new Set(rows.map((row) => String(row.name))),
+          )
+        const ensureColumn = (table: string, name: string, definition: string) =>
+          Effect.gen(function* () {
+            const names = yield* columnNames(table)
+            if (!names.has(name)) yield* query(schemaRequestId, `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`)
+          })
+        yield* ensureColumn("members", "wake_seq", "INTEGER NOT NULL DEFAULT 0")
+        yield* ensureColumn("wake_outbox", "from_seq", "INTEGER NOT NULL DEFAULT 0")
+        yield* ensureColumn("wake_outbox", "to_seq", "INTEGER NOT NULL DEFAULT 0")
+        yield* ensureColumn("wake_outbox", "delivery_id", "TEXT NOT NULL DEFAULT ''")
       }).pipe(Effect.catchTag("PersistenceFailed", (error) => Effect.die(error.message)))
 
       yield* migrate
@@ -218,7 +239,11 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         const session = yield* socket.getAttachment(SocketSession).pipe(
           Effect.catchTag("WebSocketAttachmentError", () => Effect.succeed(undefined)),
         )
-        if (session !== undefined) sessions.set(session.id, socket)
+        if (session === undefined) {
+          yield* Effect.exit(socket.close(1000, "stale"))
+          continue
+        }
+        sessions.set(session.id, socket)
       }
 
       const broadcast = (text: string) =>
@@ -263,7 +288,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         Effect.gen(function* () {
           const found = yield* query(
             requestId,
-            `SELECT agent_id, display_name, kind, role, joined, last_read_seq, webhook_url, webhook_secret
+            `SELECT agent_id, display_name, kind, role, joined, last_read_seq, wake_seq, webhook_url, webhook_secret
              FROM members ORDER BY display_name`,
           )
           const members: MemberRow[] = []
@@ -282,6 +307,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
               role,
               joined: Number(row.joined) === 1,
               lastReadSeq: Number(row.last_read_seq),
+              wakeSeq: Number(row.wake_seq ?? 0),
               webhookUrl: row.webhook_url === null ? null : String(row.webhook_url),
               webhookSecret: row.webhook_secret === null ? null : String(row.webhook_secret),
             })
@@ -423,7 +449,7 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         const requestId = schemaRequestId
         const found = yield* query(
           requestId,
-          "SELECT message_ids_json, since_seq, not_before, attempts FROM wake_outbox WHERE agent_id = ?",
+          "SELECT message_ids_json, since_seq, from_seq, to_seq, delivery_id, not_before, attempts FROM wake_outbox WHERE agent_id = ?",
           agentId,
         )
         const row = found[0]
@@ -453,13 +479,28 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
           return
         }
         const attempts = Number(row.attempts)
+        const span = spanFromRow({
+          fromSeq: Number(row.from_seq ?? 0),
+          toSeq: Number(row.to_seq ?? 0),
+          sinceSeq: Number(row.since_seq ?? 0),
+        })
+        const latestSeq = yield* query(requestId, "SELECT COALESCE(MAX(seq), 0) AS seq FROM messages")
+        const toSeq = span.toSeq > 0 ? span.toSeq : Number(latestSeq[0]?.seq ?? span.fromSeq)
+        const fromSeq = span.fromSeq
+        let deliveryId = String(row.delivery_id ?? "")
+        if (deliveryId.length === 0) {
+          const bytes = new Uint8Array(8)
+          crypto.getRandomValues(bytes)
+          deliveryId = `dlv_${[...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")}`
+        }
         const current = yield* Cloudflare.DurableObjectState
         const claimed = yield* current.storage.transaction(
           Effect.gen(function* () {
             yield* query(
               requestId,
-              "UPDATE wake_outbox SET not_before = ? WHERE agent_id = ? AND not_before <= ?",
+              "UPDATE wake_outbox SET not_before = ?, delivery_id = ? WHERE agent_id = ? AND not_before <= ?",
               now + outboxClaimMs,
+              deliveryId,
               agentId,
               now,
             )
@@ -491,7 +532,10 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
           roomName: flags.value.name,
           agentId,
           triggeringMessageIds,
-          sinceCursor: Number(row.since_seq),
+          sinceCursor: fromSeq,
+          fromSeq,
+          toSeq,
+          deliveryId,
           hopCount: flags.value.hopCount,
           paused: flags.value.paused,
           youAreLead: flags.value.leadId === agentId,
@@ -526,10 +570,27 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
           return
         }
         if (outcome === "delivered") {
-          const removed = yield* mutateOutbox(
-            "DELETE FROM wake_outbox WHERE agent_id = ? AND message_ids_json = ?",
-            agentId,
-            sentIds,
+          const removed = yield* current.storage.transaction(
+            Effect.gen(function* () {
+              yield* query(
+                requestId,
+                "DELETE FROM wake_outbox WHERE agent_id = ? AND message_ids_json = ?",
+                agentId,
+                sentIds,
+              )
+              const changed = yield* query(requestId, "SELECT changes() AS n")
+              const count = Number(changed[0]?.n ?? 0)
+              if (count === 1) {
+                yield* query(
+                  requestId,
+                  "UPDATE members SET wake_seq = CASE WHEN wake_seq > ? THEN wake_seq ELSE ? END WHERE agent_id = ?",
+                  toSeq,
+                  toSeq,
+                  agentId,
+                )
+              }
+              return count
+            }),
           )
           yield* query(
             requestId,
@@ -577,16 +638,11 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
       )
       onDeliver = registered
 
-      const enqueue = (
-        requestId: RequestId,
-        member: MemberRow,
-        messageId: string,
-        sinceSeq: number,
-      ) =>
+      const enqueue = (requestId: RequestId, member: MemberRow, messageId: string, messageSeq: number) =>
         Effect.gen(function* () {
           const existing = yield* query(
             requestId,
-            "SELECT message_ids_json, since_seq FROM wake_outbox WHERE agent_id = ?",
+            "SELECT message_ids_json, from_seq, to_seq, delivery_id FROM wake_outbox WHERE agent_id = ?",
             member.agentId,
           )
           const previous = existing[0]
@@ -600,6 +656,21 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             )
             ids = [...prior, messageId]
           }
+          const bytes = new Uint8Array(8)
+          crypto.getRandomValues(bytes)
+          const deliveryId = `dlv_${[...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")}`
+          const span =
+            previous === undefined
+              ? openSpan(member.wakeSeq, messageSeq, deliveryId)
+              : extendSpan(
+                  {
+                    fromSeq: Number(previous.from_seq),
+                    toSeq: Number(previous.to_seq),
+                    deliveryId: String(previous.delivery_id),
+                  },
+                  messageSeq,
+                  deliveryId,
+                )
           const delivered = yield* query(
             requestId,
             "SELECT last_delivered_at FROM wake_delivery WHERE agent_id = ?",
@@ -609,16 +680,23 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
           const notBefore = deliveryNotBefore(Date.now(), last === undefined || last === null ? undefined : Number(last))
           yield* query(
             requestId,
-            `INSERT INTO wake_outbox (agent_id, message_ids_json, since_seq, not_before, attempts)
-             VALUES (?, ?, ?, ?, 0)
+            `INSERT INTO wake_outbox (
+               agent_id, message_ids_json, since_seq, from_seq, to_seq, delivery_id, not_before, attempts
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
              ON CONFLICT(agent_id) DO UPDATE SET
                message_ids_json = excluded.message_ids_json,
-               since_seq = excluded.since_seq,
+               since_seq = wake_outbox.from_seq,
+               from_seq = wake_outbox.from_seq,
+               to_seq = excluded.to_seq,
+               delivery_id = excluded.delivery_id,
                not_before = excluded.not_before,
                attempts = wake_outbox.attempts`,
             member.agentId,
             JSON.stringify(ids),
-            previous === undefined ? sinceSeq : Number(previous.since_seq),
+            span.fromSeq,
+            span.fromSeq,
+            span.toSeq,
+            span.deliveryId,
             notBefore,
           )
           yield* scheduleWake(member.agentId, Math.max(0, notBefore - Date.now()), requestId)
@@ -820,6 +898,19 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             Effect.fail(persist(payload.requestId, "leave")),
           ),
         )
+        const open: Array<{ id: string; agentId: string; socket: Cloudflare.WebSocket }> = []
+        for (const [id, socket] of sessions) {
+          const session = yield* socket.getAttachment(SocketSession).pipe(
+            Effect.catchTag("WebSocketAttachmentError", () => Effect.succeed(undefined)),
+          )
+          if (session !== undefined) open.push({ id, agentId: session.agentId, socket })
+        }
+        const closing = new Set(socketIdsForAgent(open, member.agentId))
+        for (const item of open) {
+          if (!closing.has(item.id)) continue
+          yield* Effect.exit(item.socket.close(1000, "left"))
+          sessions.delete(item.id)
+        }
         return new Ack({ ok: true })
       })
 
@@ -925,10 +1016,11 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
                 replyTo: null,
               })
             }
+            const endSeq = notice === undefined ? message.seq : notice.seq
             for (const target of plan.targets) {
               const targetMember = members.find((item) => item.agentId === target && item.joined)
               if (targetMember !== undefined) {
-                yield* enqueue(payload.requestId, targetMember, message.id, targetMember.lastReadSeq)
+                yield* enqueue(payload.requestId, targetMember, message.id, endSeq)
               }
             }
             return { _tag: "Stored" as const, message, notice }
@@ -987,7 +1079,10 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         if (!Number.isInteger(payload.since) || payload.since < 0) {
           return yield* invalid(payload.requestId, "read_messages", "since", "must be a non-negative integer")
         }
-        return yield* readPage(payload.requestId, payload.since, limit, payload.thread)
+        const page = yield* readPage(payload.requestId, payload.since, limit, payload.thread)
+        const last = page.messages[page.messages.length - 1]
+        if (last !== undefined) yield* advanceReadCursor(payload.requestId, payload.actor.agentId, last.seq, "read_messages")
+        return page
       })
 
       const transcript = Effect.fn("RoomServer.transcript")(function* (payload: TranscriptPayload) {
@@ -1086,35 +1181,29 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
         })
       })
 
+      const advanceReadCursor = (requestId: RequestId, agentId: AgentId, requested: number, operation: string) =>
+        Effect.gen(function* () {
+          const current = yield* Cloudflare.DurableObjectState
+          yield* current.storage.transaction(
+            Effect.gen(function* () {
+              const latest = yield* query(requestId, "SELECT COALESCE(MAX(seq), 0) AS seq FROM messages")
+              const cap = Number(latest[0]?.seq ?? 0)
+              const row = yield* query(requestId, "SELECT last_read_seq FROM members WHERE agent_id = ?", agentId)
+              const currentRead = Number(row[0]?.last_read_seq ?? 0)
+              const next = clampCursor(currentRead, requested, cap)
+              yield* query(requestId, "UPDATE members SET last_read_seq = ? WHERE agent_id = ?", next, agentId)
+            }),
+          ).pipe(
+            Effect.catchTag("DurableObjectStorageError", () => Effect.fail(persist(requestId, operation))),
+          )
+        })
+
       const markRead = Effect.fn("RoomServer.markRead")(function* (payload: MarkReadPayload) {
         const { member } = yield* requireJoined(payload.actor, payload.requestId)
         if (!Number.isInteger(payload.seq) || payload.seq < 0) {
           return yield* invalid(payload.requestId, "mark_read", "seq", "must be a non-negative integer")
         }
-        const current = yield* Cloudflare.DurableObjectState
-        yield* current.storage.transaction(
-          Effect.gen(function* () {
-            const latest = yield* query(payload.requestId, "SELECT COALESCE(MAX(seq), 0) AS seq FROM messages")
-            const cap = Number(latest[0]?.seq ?? 0)
-            const row = yield* query(
-              payload.requestId,
-              "SELECT last_read_seq FROM members WHERE agent_id = ?",
-              member.agentId,
-            )
-            const currentRead = Number(row[0]?.last_read_seq ?? member.lastReadSeq)
-            const next = Math.min(cap, Math.max(currentRead, payload.seq))
-            yield* query(
-              payload.requestId,
-              "UPDATE members SET last_read_seq = ? WHERE agent_id = ?",
-              next,
-              member.agentId,
-            )
-          }),
-        ).pipe(
-          Effect.catchTag("DurableObjectStorageError", () =>
-            Effect.fail(persist(payload.requestId, "mark_read")),
-          ),
-        )
+        yield* advanceReadCursor(payload.requestId, member.agentId, payload.seq, "mark_read")
         return yield* unread(payload)
       })
 
@@ -1313,9 +1402,26 @@ export default class RoomServer extends Cloudflare.DurableObject<RoomServer>()(
             const request = yield* HttpServerRequest.HttpServerRequest
             const upgrade = request.headers.upgrade
             if (typeof upgrade === "string" && upgrade.toLowerCase() === "websocket") {
+              const header = request.headers["x-agent-rooms-agent"]
+              if (typeof header !== "string") {
+                return HttpServerResponse.text("Sign in before opening the room socket.", { status: 401 })
+              }
+              const agentId = yield* decodeAgentId(header).pipe(
+                Effect.catchTag("SchemaError", () => Effect.succeed("" as const)),
+              )
+              if (agentId === "") {
+                return HttpServerResponse.text("Sign in before opening the room socket.", { status: 401 })
+              }
+              const members = yield* loadMembers(schemaRequestId).pipe(
+                Effect.catchTag("PersistenceFailed", () => Effect.succeed([] as MemberRow[])),
+              )
+              const member = members.find((item) => item.agentId === agentId && item.joined)
+              if (member === undefined) {
+                return HttpServerResponse.text("Join the room before opening the socket.", { status: 403 })
+              }
               const [response, socket] = yield* Cloudflare.upgrade()
               const id = crypto.randomUUID()
-              yield* socket.setAttachment(SocketSession, { id })
+              yield* socket.setAttachment(SocketSession, { id, agentId })
               sessions.set(id, socket)
               return response
             }

@@ -1,6 +1,6 @@
 import * as Cloudflare from "alchemy/Cloudflare"
 import { Config, Effect, Layer, Redacted, Schema } from "effect"
-import { HttpServerRequest, HttpServerResponse } from "effect/http"
+import { Headers, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { finish, finishResponse, json } from "./api/respond.ts"
 import { Chat, chatLayer, type ChatError } from "./app/chat.ts"
 import { Actor } from "./domain/actor.ts"
@@ -213,7 +213,10 @@ const dispatch = Effect.gen(function* () {
           const chat = yield* Chat
           const roomId = yield* decodeRoom(rawRoom, requestId)
           yield* chat.members(actor, requestId, roomId)
-          return yield* chat.forward(roomId, request, requestId)
+          const stamped = request.modify({
+            headers: Headers.set(request.headers, "x-agent-rooms-agent", actor.agentId),
+          })
+          return yield* chat.forward(roomId, stamped, requestId)
         }),
       )
     }

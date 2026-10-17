@@ -245,14 +245,6 @@ export const makeChat = Effect.gen(function* () {
           })
         }
         const roomId = yield* Effect.catchTag(makeRoomId(), "SchemaError", () => Effect.fail(idFailed("create_room")))
-        yield* directory.putRoom({
-          requestId: input.requestId,
-          actor: input.actor,
-          roomId,
-          name,
-          topic: input.topic,
-          leadId: lead.agentId,
-        })
         const members = records.map(
           (record) =>
             new InitMember({
@@ -264,37 +256,23 @@ export const makeChat = Effect.gen(function* () {
               webhookSecret: record.webhookSecret,
             }),
         )
-        const dropCatalog = (
-          error: Unavailable | PersistenceFailed | RoomNotFound | NotMember | InvalidArgument | Forbidden,
-        ): Effect.Effect<never, ChatError> =>
-          Effect.gen(function* () {
-            yield* Effect.catchTags(directory.deleteRoom({ requestId: input.requestId, roomId }), {
-              PersistenceFailed: () => Effect.void,
-              Unavailable: () => Effect.void,
-            })
-            return yield* Effect.fail(error)
-          })
-        const created = yield* Effect.catchTags(
-          rooms.init(roomId, {
-            requestId: input.requestId,
-            roomId,
-            name,
-            topic: input.topic,
-            leadId: lead.agentId,
-            members,
-          }),
-          {
-            Unavailable: dropCatalog,
-            PersistenceFailed: dropCatalog,
-            RoomNotFound: dropCatalog,
-            NotMember: dropCatalog,
-            InvalidArgument: dropCatalog,
-            Forbidden: dropCatalog,
-          },
-        )
-        for (const record of records) {
-          yield* directory.putMembership({ requestId: input.requestId, roomId, agentId: record.agentId })
-        }
+        const created = yield* rooms.init(roomId, {
+          requestId: input.requestId,
+          roomId,
+          name,
+          topic: input.topic,
+          leadId: lead.agentId,
+          members,
+        })
+        yield* directory.putRoom({
+          requestId: input.requestId,
+          actor: input.actor,
+          roomId,
+          name,
+          topic: input.topic,
+          leadId: lead.agentId,
+          memberIds: records.map((record) => record.agentId),
+        })
         return created
       }),
     invite: (actor, requestId, roomId, agentId) =>
@@ -341,12 +319,22 @@ export const makeChat = Effect.gen(function* () {
         replyTo: input.replyTo,
       }),
     readMessages: (input) =>
-      rooms.readMessages(input.roomId, {
-        requestId: input.requestId,
-        actor: input.actor,
-        since: input.since,
-        limit: input.limit,
-        thread: input.thread,
+      Effect.gen(function* () {
+        const page = yield* rooms.readMessages(input.roomId, {
+          requestId: input.requestId,
+          actor: input.actor,
+          since: input.since,
+          limit: input.limit,
+          thread: input.thread,
+        })
+        yield* Effect.exit(
+          directory.putMembership({
+            requestId: input.requestId,
+            roomId: input.roomId,
+            agentId: input.actor.agentId,
+          }),
+        )
+        return page
       }),
     readTranscript: (input) =>
       rooms.transcript(input.roomId, {

@@ -89,7 +89,7 @@ test("one room and agent runs once, and later wakes become a single follow-up", 
   expect(third.body).toEqual({ ok: true, coalesced: true })
   expect(run.started).toEqual(["dlv_1"])
   run.finish()
-  await Promise.resolve()
+  for (let i = 0; i < 8 && run.started.length < 2; i++) await Promise.resolve()
   expect(run.started).toEqual(["dlv_1", "dlv_3"])
   run.finish()
   await first.done
@@ -102,7 +102,8 @@ test("a repeated delivery id does not start another run", async () => {
   const now = Date.now()
   const http = signed(wake("dlv_1", 9), now)
   const first = await handleWake({ method: "POST", ...http }, deps)
-  const again = await handleWake({ method: "POST", ...http }, deps)
+  const retry = signed(wake("dlv_1", 9), now + 1)
+  const again = await handleWake({ method: "POST", ...retry }, deps)
   expect(again.status).toBe(200)
   expect(again.body).toEqual({ ok: true, duplicate: true })
   expect(run.started).toEqual(["dlv_1"])
@@ -118,7 +119,7 @@ test("the prompt tells the harness the unseen seq range", async () => {
   deps.start = (payload, _config, text) => {
     prompt = text
     run.started.push(payload.deliveryId)
-    return Promise.resolve({ status: 200, body: { ok: true } })
+    return Promise.resolve({ status: 200, body: { ok: true, prompt: text } })
   }
   const response = await handleWake({ method: "POST", ...signed(wake("dlv_9", 9), now) }, deps)
   await response.done

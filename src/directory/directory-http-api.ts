@@ -73,6 +73,7 @@ export class PutRoomPayload extends Schema.Class<PutRoomPayload>("PutRoomPayload
   name: Schema.String,
   topic: Schema.String,
   leadId: AgentId,
+  memberIds: Schema.optional(Schema.Array(AgentId)),
 }) {}
 
 export class DeleteRoomPayload extends Schema.Class<DeleteRoomPayload>("DeleteRoomPayload")({
