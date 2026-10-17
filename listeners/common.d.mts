@@ -30,6 +30,11 @@ export function readPendingFile(dir: string, roomId: string, agentId: string): P
 export function writePendingFile(dir: string, roomId: string, agentId: string, record: PendingRecord): void
 export function removePendingFile(dir: string, roomId: string, agentId: string): void
 export function acceptPending(dir: string, wake: { roomId: string; agentId: string; deliveryId: string }): "start" | "queued" | "same"
+export function markDelivered(
+  config: { mcpUrl?: string; bearerToken?: string },
+  wake: { roomId?: string; toSeq?: number; sinceCursor?: number },
+  fetchImpl?: (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<unknown>,
+): Promise<void>
 export function postFailure(
   config: { mcpUrl?: string; bearerToken?: string },
   wake: { roomId: string; fromSeq: number; toSeq: number },
