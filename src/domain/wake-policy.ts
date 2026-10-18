@@ -3,6 +3,9 @@ import type { AgentId } from "./ids.ts";
 
 export const HOP_LIMIT = 20;
 
+export const pauseNotice =
+  "@human Agent-to-agent wakes are paused after 20 hops with no human message. Post in this room to resume.";
+
 export const DEBOUNCE_MS = 3000;
 
 export const COOLDOWN_MS = 5000;

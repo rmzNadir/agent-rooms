@@ -8,7 +8,11 @@ import {
 } from "../domain/errors.ts";
 import { type RequestId, type RoomId, systemAgentId } from "../domain/ids.ts";
 import { MessagePage, type MessageView } from "../domain/message.ts";
-import { planPost, type WakeMember } from "../domain/wake-policy.ts";
+import {
+  pauseNotice,
+  planPost,
+  type WakeMember,
+} from "../domain/wake-policy.ts";
 import type { PostPayload } from "./room-http-api.ts";
 import {
   joinedMember,
@@ -138,9 +142,6 @@ const fanout = <EnqueueError, EnqueueEnv>(
     }
   });
 
-const humanPauseNotice =
-  "@human Agent-to-agent wakes are paused after 20 hops with no human message. Post in this room to resume.";
-
 const commitPost = <EnqueueError, EnqueueEnv>(
   enqueue: (
     requestId: RequestId,
@@ -197,7 +198,7 @@ const commitPost = <EnqueueError, EnqueueEnv>(
           authorId: systemAgentId,
           authorKind: "agent",
           authorName: "room",
-          body: humanPauseNotice,
+          body: pauseNotice,
           mentions: ["human"],
           replyTo: null,
           requestId: payload.requestId,

@@ -12,6 +12,7 @@ import {
   LanguageVariant,
   SyntaxKind,
 } from "typescript/unstable/ast";
+import { architectureFailures } from "./architecture.ts";
 import { type MethodMetric, metricsFor } from "./metrics.ts";
 
 interface QualityConfig {
@@ -39,7 +40,7 @@ interface QualityConfig {
 const config = JSON.parse(
   readFileSync("quality.config.json", "utf8")
 ) as QualityConfig;
-const failures: string[] = [];
+const failures: string[] = architectureFailures();
 const fail = (message: string) => {
   failures.push(message);
 };

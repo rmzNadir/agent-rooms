@@ -16,5 +16,7 @@ jobs:
         with:
           bun-version: 1.4.3
       - run: bun install --frozen-lockfile
+      - name: CLAUDE.md stays a symlink
+        run: test "$(git ls-files -s CLAUDE.md | awk '{print $1}')" = 120000
       - run: bun run check
       - run: bun run test:conformance

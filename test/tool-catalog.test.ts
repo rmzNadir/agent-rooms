@@ -13,28 +13,30 @@ const field = (
   key: string
 ): Json | undefined => value[key];
 
-const shape = (value: Json) => {
-  if (!isJsonObject(value)) {
-    return "";
-  }
+const enumShape = (value: { readonly [column: string]: Json }) => {
   const enumerated = textList(field(value, "enum"));
-  if (enumerated.length > 0) {
-    return `enum:${enumerated}`;
-  }
+  return enumerated.length > 0 ? `enum:${enumerated}` : "";
+};
+
+const arrayItem = (value: { readonly [column: string]: Json }) => {
+  const items = field(value, "items");
+  const itemTypeValue = isJsonObject(items) ? field(items, "type") : undefined;
+  return typeof itemTypeValue === "string" ? itemTypeValue : "";
+};
+
+const typedShape = (value: { readonly [column: string]: Json }) => {
   const typeValue = field(value, "type");
   if (Array.isArray(typeValue)) {
     return textList(typeValue);
   }
   if (typeValue === "array") {
-    const items = field(value, "items");
-    const itemTypeValue = isJsonObject(items)
-      ? field(items, "type")
-      : undefined;
-    const itemType = typeof itemTypeValue === "string" ? itemTypeValue : "";
-    return `array:${itemType}`;
+    return `array:${arrayItem(value)}`;
   }
   return typeof typeValue === "string" ? typeValue : "";
 };
+
+const shape = (value: Json) =>
+  isJsonObject(value) ? enumShape(value) || typedShape(value) : "";
 
 const render = (tool: (typeof tools)[number]) => {
   const schema = tool.inputSchema;

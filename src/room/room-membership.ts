@@ -3,6 +3,7 @@ import { Effect, Option } from "effect";
 import { Forbidden, NotInvited } from "../domain/errors.ts";
 import { MemberView } from "../domain/message.ts";
 import { socketIdsForAgent } from "../domain/sockets.ts";
+import { inviteAllowed, invitedMember, nextLead } from "../model/membership.ts";
 import {
   Ack,
   type InitRoomPayload,
@@ -69,7 +70,7 @@ export const invite = Effect.fn("RoomServer.invite")(function* (
 ) {
   const { id, members } = yield* loadRoom(payload.requestId);
   const actorJoined = joinedMember(payload.actor, members);
-  if (actorJoined === undefined && !payload.actor.admin) {
+  if (!inviteAllowed(actorJoined !== undefined, payload.actor.admin)) {
     return yield* notMember(id, payload.requestId);
   }
   yield* roomQuery(
@@ -107,7 +108,7 @@ export const join = Effect.fn("RoomServer.join")(function* (
 ) {
   const { id, members } = yield* loadRoom(payload.requestId);
   const member = members.find((item) => item.agentId === payload.actor.agentId);
-  if (member === undefined) {
+  if (!invitedMember(member)) {
     return yield* new NotInvited({
       code: "NotInvited",
       details: { roomId: id },
@@ -163,10 +164,7 @@ export const leave = (sessions: Map<string, WebSocket>) =>
     const remaining = members.filter(
       (item) => item.agentId !== member.agentId && item.joined
     );
-    const next =
-      member.role === "lead"
-        ? (remaining.find((item) => item.kind === "agent") ?? remaining[0])
-        : undefined;
+    const next = nextLead(member.role, remaining);
     if (member.role === "lead" && next === undefined) {
       return yield* new Forbidden({
         code: "Forbidden",

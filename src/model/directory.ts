@@ -1,0 +1,176 @@
+import { Aggregate, Command, Event } from "alchemy/Domain";
+import { Schema } from "effect";
+import { MemberKind } from "../domain/actor.ts";
+import { AgentId, RoomId } from "../domain/ids.ts";
+import {
+  AgentAlreadyRegistered,
+  AgentMissing,
+  RoomNameTaken,
+} from "./rejections.ts";
+
+const AgentState = Schema.Struct({
+  agentId: AgentId,
+  displayName: Schema.String,
+  kind: MemberKind,
+  tokenHash: Schema.String,
+});
+const RoomListing = Schema.Struct({
+  leadId: AgentId,
+  name: Schema.String,
+  roomId: RoomId,
+  topic: Schema.String,
+});
+
+const DirectoryState = Schema.Struct({
+  agents: Schema.Array(AgentState),
+  rooms: Schema.Array(RoomListing),
+});
+type DirectoryState = typeof DirectoryState.Type;
+
+const initialDirectory: DirectoryState = { agents: [], rooms: [] };
+
+const directoryId = Schema.String;
+
+export class AgentRegistered extends Event("AgentRegistered", {
+  agent: AgentState,
+}) {}
+
+export class TokenRotated extends Event("TokenRotated", {
+  agentId: AgentId,
+  tokenHash: Schema.String,
+}) {}
+
+export class RoomReserved extends Event("RoomReserved", {
+  leadId: AgentId,
+  name: Schema.String,
+  roomId: RoomId,
+  topic: Schema.String,
+}) {}
+
+export class RegisterAgent extends Command("RegisterAgent", {
+  events: [AgentRegistered],
+  input: {
+    agentId: AgentId,
+    displayName: Schema.String,
+    kind: MemberKind,
+    tokenHash: Schema.String,
+  },
+  rejects: [AgentAlreadyRegistered],
+  target: directoryId,
+}) {}
+
+export class RotateToken extends Command("RotateToken", {
+  events: [TokenRotated],
+  input: { agentId: AgentId, tokenHash: Schema.String },
+  rejects: [AgentMissing],
+  target: directoryId,
+}) {}
+
+export class ReserveRoom extends Command("ReserveRoom", {
+  events: [RoomReserved],
+  input: {
+    leadId: AgentId,
+    memberIds: Schema.Array(AgentId),
+    name: Schema.String,
+    roomId: RoomId,
+    topic: Schema.String,
+  },
+  rejects: [RoomNameTaken, AgentMissing],
+  target: directoryId,
+}) {}
+
+type Registered = InstanceType<typeof RegisterAgent>;
+type Rotated = InstanceType<typeof RotateToken>;
+type Reserved = InstanceType<typeof ReserveRoom>;
+
+const knownAgent = (state: DirectoryState, agentId: AgentId) =>
+  state.agents.some((agent) => agent.agentId === agentId);
+
+export const Directory = Aggregate("Directory", {
+  commands: [RegisterAgent, RotateToken, ReserveRoom],
+  decide: {
+    RegisterAgent: (state: DirectoryState, command: Registered) =>
+      knownAgent(state, command.agentId)
+        ? new AgentAlreadyRegistered()
+        : [
+            new AgentRegistered({
+              agent: {
+                agentId: command.agentId,
+                displayName: command.displayName,
+                kind: command.kind,
+                tokenHash: command.tokenHash,
+              },
+            }),
+          ],
+    ReserveRoom: (state: DirectoryState, command: Reserved) => {
+      const missing = command.memberIds.find(
+        (agentId) => !knownAgent(state, agentId)
+      );
+      if (missing !== undefined || !knownAgent(state, command.leadId)) {
+        return new AgentMissing();
+      }
+      const taken = state.rooms.some(
+        (room) => room.name === command.name && room.roomId !== command.roomId
+      );
+      return taken
+        ? new RoomNameTaken({ name: command.name })
+        : [
+            new RoomReserved({
+              leadId: command.leadId,
+              name: command.name,
+              roomId: command.roomId,
+              topic: command.topic,
+            }),
+          ];
+    },
+    RotateToken: (state: DirectoryState, command: Rotated) => {
+      const current = state.agents.find(
+        (agent) => agent.agentId === command.agentId
+      );
+      if (current === undefined) {
+        return new AgentMissing();
+      }
+      return current.tokenHash === command.tokenHash
+        ? []
+        : [
+            new TokenRotated({
+              agentId: command.agentId,
+              tokenHash: command.tokenHash,
+            }),
+          ];
+    },
+  },
+  evolve: {
+    AgentRegistered: (
+      state: DirectoryState,
+      event: { readonly agent: DirectoryState["agents"][number] }
+    ) => ({
+      agents: [...state.agents, event.agent],
+      rooms: state.rooms,
+    }),
+    RoomReserved: (
+      state: DirectoryState,
+      event: DirectoryState["rooms"][number]
+    ) => ({
+      agents: state.agents,
+      rooms: [
+        ...state.rooms.filter((room) => room.roomId !== event.roomId),
+        event,
+      ],
+    }),
+    TokenRotated: (
+      state: DirectoryState,
+      event: { readonly agentId: AgentId; readonly tokenHash: string }
+    ) => ({
+      agents: state.agents.map((agent) =>
+        agent.agentId === event.agentId
+          ? { ...agent, tokenHash: event.tokenHash }
+          : agent
+      ),
+      rooms: state.rooms,
+    }),
+  },
+  id: directoryId,
+  initial: initialDirectory,
+  state: DirectoryState,
+});

@@ -8,7 +8,8 @@
       "!!**/.alchemy",
       "!!**/coverage",
       "!!**/.stryker-tmp",
-      "!!**/bun.lock"
+      "!!**/bun.lock",
+      "!!vendor/alchemy-domain"
     ]
   },
   "javascript": {
