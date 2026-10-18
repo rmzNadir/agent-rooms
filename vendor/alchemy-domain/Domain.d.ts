@@ -89,6 +89,7 @@ export declare function Stream(name: string, definition: object): StreamClass;
 
 export interface ExternalClass extends Effect<WebhookClient, never, never> {
   readonly deliver: object;
+  toLayer(build: object): Layer.Layer<never>;
   new (...args: readonly object[]): object;
 }
 

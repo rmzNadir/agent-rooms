@@ -27,7 +27,10 @@ export const webhookUrlProblem = (value: string): string | undefined => {
   let url: URL;
   try {
     url = new URL(value);
-  } catch {
+  } catch (error) {
+    if (typeof value !== "string") {
+      throw error;
+    }
     return "must be an http or https URL";
   }
   if (url.username.length > 0 || url.password.length > 0) {

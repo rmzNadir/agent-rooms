@@ -96,7 +96,7 @@ import {
 } from "./model-fixture.ts";
 
 test("commands, events, and rejections keep their names and fields", () => {
-  expect(keys(RoomOpened)).toBe("_tag,leadId,members,name,topic");
+  expect(keys(RoomOpened)).toBe("_tag,hopCount,leadId,members,name,topic");
   expect(keys(MemberInvited)).toBe("_tag,member");
   expect(keys(MemberJoined)).toBe("_tag,agentId");
   expect(keys(MemberLeft)).toBe("_tag,agentId");
@@ -142,7 +142,9 @@ test("commands, events, and rejections keep their names and fields", () => {
   expect(keys(AgentRegistered)).toBe("_tag,agent");
   expect(keys(TokenRotated)).toBe("_tag,agentId,tokenHash");
   expect(keys(RoomReserved)).toBe("_tag,leadId,name,roomId,topic");
-  expect(keys(RegisterAgent)).toBe("_tag,agentId,displayName,kind,tokenHash");
+  expect(keys(RegisterAgent)).toBe(
+    "_tag,admin,agentId,displayName,kind,tokenHash"
+  );
   expect(keys(RotateToken)).toBe("_tag,agentId,tokenHash");
   expect(keys(ReserveRoom)).toBe("_tag,leadId,memberIds,name,roomId,topic");
   expect(tags(RegisterAgent, "rejects")).toEqual(["AgentAlreadyRegistered"]);
@@ -156,7 +158,7 @@ test("commands, events, and rejections keep their names and fields", () => {
     Object.keys(named(Webhook).ops.deliver.args)
       .sort((left, right) => (left < right ? -1 : 1))
       .join(",")
-  ).toBe("body,roomId");
+  ).toBe("agentId,body,roomId");
   expect(Object.keys(named(Webhook).ops.deliver.success).join(",")).toBe(
     "status"
   );

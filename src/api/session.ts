@@ -11,10 +11,20 @@ import { finishResponse, json } from "./respond.ts";
 
 const SessionBody = Schema.Struct({ token: Schema.String });
 
-export const locate = (request: HttpServerRequest.HttpServerRequest) =>
-  request.url.startsWith("http://") || request.url.startsWith("https://")
-    ? new URL(request.url)
-    : new URL(request.url, "http://localhost");
+export const fallbackAdminName = "human";
+
+export const absoluteUrl = (value: string) =>
+  new URL(value, "http://localhost");
+
+export const locate = (request: { readonly url: string }) =>
+  absoluteUrl(request.url);
+
+export const sessionCookie = (secure: boolean) => ({
+  httpOnly: true,
+  path: "/",
+  sameSite: "lax" as const,
+  secure,
+});
 
 const viewerRoomPattern = /^\/rooms\/(room_[0-9a-f]{24})$/;
 
@@ -38,10 +48,10 @@ export const loadActor = (token: string) =>
         () => Effect.fail(configDown)
       )
     );
-    const adminName = yield* Effect.catchTag(
-      Config.String("AGENT_ROOMS_ADMIN_NAME").pipe(Config.withDefault("human")),
-      "ConfigError",
-      () => Effect.succeed("human")
+    const adminName = yield* Effect.orDie(
+      Config.String("AGENT_ROOMS_ADMIN_NAME").pipe(
+        Config.withDefault(fallbackAdminName)
+      )
     );
     const tokenHash = yield* hashToken(token);
     const adminHash = yield* hashToken(adminToken);
@@ -74,28 +84,13 @@ const openSession = finishResponse(
       displayName: actor.displayName,
       ok: true,
     });
-    return yield* Effect.catchTag(
+    return yield* Effect.orDie(
       HttpServerResponse.setCookie(
         response,
         "agent_rooms_token",
         parsed.success.token,
-        {
-          httpOnly: true,
-          path: "/",
-          sameSite: "lax",
-          secure: isHttps(request),
-        }
-      ),
-      "CookiesError",
-      () =>
-        json(400, {
-          code: "InvalidArgument",
-          details: { constraint: "cookie-safe", field: "token" },
-          message:
-            "That token could not be stored in a cookie. Use the Authorization header instead.",
-          requestId: internalRequestId,
-          retryable: false,
-        })
+        sessionCookie(isHttps(request))
+      )
     );
   })
 );
@@ -122,7 +117,7 @@ export const routeViewer = Effect.gen(function* () {
     return handled(viewerPage(null));
   }
   const viewerRoom = viewerRoomPattern.exec(path);
-  const [, viewerId] = viewerRoom ?? [];
+  const viewerId = viewerRoom === null ? undefined : viewerRoom[1];
   if (request.method === "GET" && viewerId !== undefined) {
     return handled(viewerPage(viewerId));
   }

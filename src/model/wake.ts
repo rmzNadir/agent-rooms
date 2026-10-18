@@ -1,5 +1,6 @@
 import { ExternalSystem, Policy } from "alchemy/Domain";
 import { Effect, Schedule, Schema } from "effect";
+import { deliveryIdFor, earlierSeq, wakePayload } from "../domain/wake-body.ts";
 import { MAX_WAIT_MS, MAX_WAKE_ATTEMPTS } from "../domain/wake-policy.ts";
 import { client } from "./client.ts";
 import { Room } from "./room.ts";
@@ -8,7 +9,11 @@ import { MessagePosted } from "./room-shape.ts";
 
 export const Webhook = ExternalSystem("Webhook", {
   deliver: {
-    args: { body: Schema.String, roomId: Schema.String },
+    args: {
+      agentId: Schema.String,
+      body: Schema.String,
+      roomId: Schema.String,
+    },
     success: { status: Schema.Number },
   },
 });
@@ -33,35 +38,57 @@ export const WakeDeliveryLive = WakeDelivery.toLayer(
         options: { readonly after: number }
       ) => Effect.Effect<void>;
       readonly send: (id: string, command: object) => Effect.Effect<void>;
+      readonly state: (id: string) => Effect.Effect<{
+        readonly hopCount: number;
+        readonly leadId: string | null;
+        readonly messages: readonly { readonly seq: number }[];
+        readonly name: string;
+        readonly paused: boolean;
+      }>;
     }>(Room);
     const webhook = yield* client<{
       readonly deliver: (args: {
+        readonly agentId: string;
         readonly body: string;
         readonly roomId: string;
       }) => Effect.Effect<void>;
     }>(Webhook);
     return (trigger: {
       readonly event: {
-        readonly message: { readonly body: string; readonly seq: number };
+        readonly message: { readonly seq: number };
         readonly targets: readonly string[];
       };
       readonly source: { readonly id: string };
-    }) => {
-      if (trigger.event.targets.length === 0) {
-        return Effect.void;
-      }
-      const id = String(trigger.event.message.seq);
-      return Effect.gen(function* () {
-        yield* webhook.deliver({
-          body: trigger.event.message.body,
-          roomId: trigger.source.id,
-        });
-        yield* rooms.send(trigger.source.id, new RecordDelivery({ id }));
-        yield* rooms.schedule(trigger.source.id, new ExpireWake({ id }), {
-          after: wakeDeadline(),
-        });
+    }) =>
+      Effect.gen(function* () {
+        const state = yield* rooms.state(trigger.source.id);
+        const fromSeq = earlierSeq(
+          state.messages.map((message) => message.seq),
+          trigger.event.message.seq
+        );
+        for (const agentId of trigger.event.targets) {
+          const id = deliveryIdFor(trigger.event.message.seq, agentId);
+          yield* webhook.deliver({
+            agentId,
+            body: wakePayload({
+              agentId,
+              deliveryId: id,
+              fromSeq,
+              hopCount: state.hopCount,
+              paused: state.paused,
+              roomId: trigger.source.id,
+              roomName: state.name,
+              toSeq: trigger.event.message.seq,
+              youAreLead: state.leadId === agentId,
+            }),
+            roomId: trigger.source.id,
+          });
+          yield* rooms.send(trigger.source.id, new RecordDelivery({ id }));
+          yield* rooms.schedule(trigger.source.id, new ExpireWake({ id }), {
+            after: wakeDeadline(),
+          });
+        }
       });
-    };
   }),
   wakeDeliveryOptions
 );

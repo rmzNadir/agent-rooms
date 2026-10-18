@@ -10,7 +10,7 @@ Commands are imperative and name their rejections. Events are past tense. `decid
 
 ## Layout
 
-`src/model` is the domain. `src/domain` holds the shared schemas. `src/api` is the MCP and viewer. `src/runtime/domain-host.ts` is the Cloudflare adapter. The running worker still uses the SQLite rooms so the stage `nadir` keeps its rows.
+`src/model` is the domain. `src/domain` holds the shared schemas. `src/api` is the MCP and viewer. The worker hosts that model on Cloudflare Durable Objects. Existing SQLite rows are imported on first access of each object, then the legacy runtime is gone.
 
 ## Checks
 

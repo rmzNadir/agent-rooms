@@ -318,7 +318,7 @@ test("chat drives directory and room behavior through the live handlers", async 
       );
     })
   );
-  expect(forwarded.status).toBe(200);
+  expect(forwarded.status).toBe(400);
   const unknownTool = await run(
     Effect.gen(function* () {
       return yield* callTool(admin, "not_a_tool", {}, requestId);

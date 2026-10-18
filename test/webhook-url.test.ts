@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { WebhookRegistration } from "../src/directory/directory-http-api.ts";
+import { WebhookRegistration } from "../src/app/records.ts";
 import { webhookUrlProblem } from "../src/domain/webhook-url.ts";
 
 describe("webhookUrlProblem", () => {

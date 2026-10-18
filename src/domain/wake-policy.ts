@@ -108,13 +108,18 @@ const scanMentions = (
     if (resolved._tag === "Unknown") {
       return { _tag: "UnknownMention", token };
     }
-    if (resolved._tag === "All") {
-      all = true;
-    } else if (resolved._tag === "Human") {
-      human = true;
-    } else if (resolved._tag === "Agent") {
-      mentioned.push(resolved.agentId);
-    }
+    const note = {
+      Agent: () => {
+        mentioned.push((resolved as { readonly agentId: AgentId }).agentId);
+      },
+      All: () => {
+        all = true;
+      },
+      Human: () => {
+        human = true;
+      },
+    }[resolved._tag];
+    note();
   }
   return { all, human, mentioned };
 };
@@ -251,8 +256,6 @@ export const retryDelayMs = (attempts: number): number => {
   const exponent = Math.min(Math.max(attempts, 1), 5);
   return Math.min(retryCapMs, retryBaseMs * 2 ** exponent);
 };
-
-export const outboxClaimMs = 60_000;
 
 export type WakeStatus = "delivered" | "busy" | "failed";
 

@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { verifyDomainPin } from "./verify-domain-pin.ts";
+
+verifyDomainPin(false);
 
 const root = "node_modules/alchemy";
 if (!existsSync(`${root}/package.json`)) {

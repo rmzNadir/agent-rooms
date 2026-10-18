@@ -22,20 +22,31 @@ export const makeSecret = Effect.fn("Token.secret")(function* () {
     .join("");
 });
 
+export const importSigningKey = (secret: string, extractable: boolean) =>
+  crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { hash: "SHA-256", name: "HMAC" },
+    extractable,
+    ["sign"]
+  );
+
+export const signingKeyDefect = "signing key must stay non-extractable";
+
+export const rejectExtractable = (key: CryptoKey) => {
+  if (key.extractable) {
+    return Effect.die(new Error(signingKeyDefect));
+  }
+  return Effect.void;
+};
+
 export const signPayload = Effect.fn("Token.sign")(function* (
   secret: string,
   timestamp: string,
   body: string
 ) {
-  const key = yield* Effect.promise(() =>
-    crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { hash: "SHA-256", name: "HMAC" },
-      false,
-      ["sign"]
-    )
-  );
+  const key = yield* Effect.promise(() => importSigningKey(secret, false));
+  yield* rejectExtractable(key);
   const signature = yield* Effect.promise(() =>
     crypto.subtle.sign(
       "HMAC",

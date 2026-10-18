@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import { Story } from "alchemy/Domain/Story";
 import { Effect, Schema } from "effect";
 import { RoomId } from "../src/domain/ids.ts";
+import { deliveryIdFor } from "../src/domain/wake-body.ts";
 import { MentionRequired, OnlyMember } from "../src/model/rejections.ts";
 import { Room } from "../src/model/room.ts";
 import {
@@ -12,9 +13,11 @@ import {
   OpenRoom,
   PostMessage,
   ReactToMessage,
+  RecordImport,
   RedactMessage,
 } from "../src/model/room-commands.ts";
 import {
+  HopRecorded,
   MemberInvited,
   MemberJoined,
   MessageEdited,
@@ -132,9 +135,12 @@ test("opening, inviting, and a human post wake the agents", async () => {
         posted("hello", humanId, "Ada", "human", 1, ["all"], [leadId, samId])
       ),
       Story.view(Transcript, room, { roomName: "general" }),
-      Story.expectCall(Webhook.deliver, { body: "hello", roomId }),
+      Story.expectCall(Webhook.deliver, { agentId: leadId, roomId }),
       Story.resolve(Webhook.deliver, { status: 200 }),
-      Story.then(room, new WakeDelivered({ id: "1" })),
+      Story.then(room, new WakeDelivered({ id: deliveryIdFor(1, leadId) })),
+      Story.expectCall(Webhook.deliver, { agentId: samId, roomId }),
+      Story.resolve(Webhook.deliver, { status: 200 }),
+      Story.then(room, new WakeDelivered({ id: deliveryIdFor(1, samId) })),
       Story.view(Unread, room, { latestSeq: 1 }),
       Story.clock("2026-01-01T00:00:26Z"),
       Story.then(room),
@@ -173,16 +179,20 @@ const samPosted = (body: string) => [
   Story.then(room, posted(body, leadId, "Lead", "agent", 1, ["Sam"], [samId])),
 ];
 
+const samWoken = (body: string) => [
+  ...samPosted(body),
+  Story.expectCall(Webhook.deliver, { agentId: samId, roomId }),
+  Story.resolve(Webhook.deliver, { status: 200 }),
+  Story.then(room, new WakeDelivered({ id: deliveryIdFor(1, samId) })),
+];
+
 test("an untagged agent post is rejected and a named mention is delivered", async () => {
   await run(
     story(
       ...opened("general"),
       Story.when(room, agentPost("silent")),
       Story.rejected(new MentionRequired()),
-      ...samPosted("hi @Sam"),
-      Story.expectCall(Webhook.deliver, { body: "hi @Sam", roomId }),
-      Story.resolve(Webhook.deliver, { status: 200 }),
-      Story.then(room, new WakeDelivered({ id: "1" })),
+      ...samWoken("hi @Sam"),
       Story.view(SearchIndex, room, {
         entries: [
           { authorName: "Lead", body: "hi @Sam", redacted: false, seq: 1 },
@@ -252,10 +262,7 @@ test("edit and redact stay on the transcript and do not call the webhook", async
   await run(
     story(
       ...opened("general"),
-      ...samPosted("hi @Sam"),
-      Story.expectCall(Webhook.deliver, { roomId }),
-      Story.resolve(Webhook.deliver, { status: 200 }),
-      Story.then(room, new WakeDelivered({ id: "1" })),
+      ...samWoken("hi @Sam"),
       Story.when(
         room,
         new EditMessage({
@@ -281,6 +288,86 @@ test("edit and redact stay on the transcript and do not call the webhook", async
           throw new Error("redact did not land");
         }
       })
+    )
+  );
+});
+
+const samBody =
+  '{"agentId":"agent_cccccccccccccccccccccccc","deliveryId":"dlv_a30c36c600000001","fromSeq":0,"hopCount":1,"paused":false,"roomId":"room_aaaaaaaaaaaaaaaaaaaaaaaa","roomName":"general","sinceCursor":0,"toSeq":1,"triggeringMessageIds":["1"],"youAreLead":false}';
+
+const leadBody =
+  '{"agentId":"agent_bbbbbbbbbbbbbbbbbbbbbbbb","deliveryId":"dlv_0b0a3c0f00000002","fromSeq":1,"hopCount":2,"paused":false,"roomId":"room_aaaaaaaaaaaaaaaaaaaaaaaa","roomName":"general","sinceCursor":1,"toSeq":2,"triggeringMessageIds":["2"],"youAreLead":true}';
+
+test("a wake names the lead, the earlier cursor, and a fixed delivery id", async () => {
+  await run(
+    story(
+      ...opened("general"),
+      Story.when(room, agentPost("hi @Sam")),
+      Story.then(
+        room,
+        posted("hi @Sam", leadId, "Lead", "agent", 1, ["Sam"], [samId])
+      ),
+      Story.expectCall(Webhook.deliver, {
+        agentId: samId,
+        body: samBody,
+        roomId,
+      }),
+      Story.resolve(Webhook.deliver, { status: 200 }),
+      Story.then(room, new WakeDelivered({ id: "dlv_a30c36c600000001" })),
+      Story.when(
+        room,
+        new PostMessage({
+          authorId: samId,
+          authorKind: "agent",
+          authorName: "Sam",
+          body: "hi @Lead",
+          explicitMentions: [],
+          replyTo: null,
+          threadRoot: null,
+        })
+      ),
+      Story.then(
+        room,
+        posted("hi @Lead", samId, "Sam", "agent", 2, ["Lead"], [leadId])
+      ),
+      Story.expectCall(Webhook.deliver, {
+        agentId: leadId,
+        body: leadBody,
+        roomId,
+      }),
+      Story.resolve(Webhook.deliver, { status: 200 }),
+      Story.then(room, new WakeDelivered({ id: "dlv_0b0a3c0f00000002" }))
+    )
+  );
+});
+
+test("a second room import adds no events", async () => {
+  const legacy = {
+    hopCount: 4,
+    leadId,
+    members: [],
+    messages: [],
+    name: "ops",
+    paused: false,
+    roomId,
+    topic: "ship",
+  };
+  await run(
+    story(
+      Story.when(room, new RecordImport({ room: legacy })),
+      Story.then(
+        room,
+        new RoomOpened({
+          hopCount: 4,
+          leadId,
+          members: [],
+          name: "ops",
+          topic: "ship",
+        }),
+        new HopRecorded({ hopCount: 4 })
+      ),
+      Story.when(room, new RecordImport({ room: legacy })),
+      Story.then(room)
     )
   );
 });

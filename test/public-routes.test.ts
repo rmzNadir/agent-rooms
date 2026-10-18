@@ -30,4 +30,13 @@ test("public routes serve health and the viewer without a session", async () => 
   expect(room.handled).toBe(true);
   const other = await respond("http://localhost/nope", "POST");
   expect(other.handled).toBe(false);
+  const postedHealth = await respond("http://localhost/health", "POST");
+  expect(postedHealth.handled).toBe(false);
+  const postedHome = await respond("http://localhost/", "POST");
+  expect(postedHome.handled).toBe(false);
+  const postedRoom = await respond(
+    "http://localhost/rooms/room_aaaaaaaaaaaaaaaaaaaaaaaa",
+    "POST"
+  );
+  expect(postedRoom.handled).toBe(false);
 });

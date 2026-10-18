@@ -1,5 +1,6 @@
 import { Cause, Effect } from "effect";
-import { Chat, chatLayer } from "../src/app/chat.ts";
+import { HttpServerResponse } from "effect/http";
+import { Chat, chatLayer, type IChat } from "../src/app/chat.ts";
 import { Actor } from "../src/domain/actor.ts";
 import {
   type AgentId,
@@ -10,6 +11,18 @@ import { hashToken } from "../src/domain/token.ts";
 import type { RoomHost } from "./object-host.ts";
 
 export const requestId = internalRequestId;
+
+export const chatEffect = <A, E>(body: (chat: IChat) => Effect.Effect<A, E>) =>
+  Effect.gen(function* () {
+    return yield* body(yield* chatService());
+  });
+
+export const responseText = (
+  response: HttpServerResponse.HttpServerResponse
+) => {
+  const web = HttpServerResponse.toWeb(response);
+  return web.text().then((body) => ({ body, status: web.status }));
+};
 const chatService = () => Chat;
 
 // Yielding a durable object still types its requirement as the Worker service after that service is provided.

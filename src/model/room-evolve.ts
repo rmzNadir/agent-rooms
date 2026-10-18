@@ -26,6 +26,7 @@ const mapMessage = (
 export const applyOpened = (
   state: RoomState,
   event: {
+    readonly hopCount?: number;
     readonly leadId: AgentId;
     readonly members: readonly MemberState[];
     readonly name: string;
@@ -33,13 +34,18 @@ export const applyOpened = (
   }
 ): RoomState => ({
   ...state,
-  hopCount: 0,
+  hopCount: typeof event.hopCount === "number" ? event.hopCount : 0,
   leadId: event.leadId,
   members: [...event.members],
   name: event.name,
   open: true,
   paused: false,
   topic: event.topic,
+});
+
+export const applyHop = (state: RoomState, hopCount: number): RoomState => ({
+  ...state,
+  hopCount,
 });
 
 export const applyInvited = (

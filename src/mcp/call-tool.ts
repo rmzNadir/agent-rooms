@@ -28,11 +28,12 @@ const Args = Schema.Struct({
   webhook_url: optionalJson,
 });
 
-const toJson = <A>(value: A) =>
+const unavailableJson =
+  '{"code":"Unavailable","message":"The response could not be encoded. Retry the same request.","details":{},"requestId":"req_000000000000000000000001","retryable":true}';
+
+export const jsonText = <A>(value: A) =>
   Effect.catchTag(encodeJsonText(value), "SchemaError", () =>
-    Effect.succeed(
-      '{"code":"Unavailable","message":"The response could not be encoded. Retry the same request.","details":{},"requestId":"req_000000000000000000000001","retryable":true}'
-    )
+    Effect.succeed(unavailableJson)
   );
 
 interface ToolBody {
@@ -45,7 +46,7 @@ interface ToolBody {
 
 const toolOk = <A>(value: A) =>
   Effect.map(
-    toJson(value),
+    jsonText(value),
     (text): ToolBody => ({ content: [{ text, type: "text" }], isError: false })
   );
 
@@ -57,7 +58,7 @@ export const toolErr = (error: {
   readonly retryable: boolean;
 }) =>
   Effect.map(
-    toJson(publicErrorBody(error)),
+    jsonText(publicErrorBody(error)),
     (text): ToolBody => ({ content: [{ text, type: "text" }], isError: true })
   );
 

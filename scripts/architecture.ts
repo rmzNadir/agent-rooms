@@ -115,11 +115,16 @@ export const architectureFailures = () => {
     failures.push(...modelFailures(file, text));
   }
   const worker = readFileSync("src/api-worker.ts", "utf8");
+  if (!worker.includes("roomsOnCloudflare")) {
+    failures.push("src/api-worker.ts does not host the domain");
+  }
   if (
-    worker.includes("Domain/Cloudflare") ||
-    worker.includes("roomsOnCloudflare")
+    worker.includes("./room/") ||
+    worker.includes("./directory/") ||
+    worker.includes("src/room/") ||
+    worker.includes("src/directory/")
   ) {
-    failures.push("src/api-worker.ts imports the domain runtime");
+    failures.push("src/api-worker.ts imports the sqlite runtime");
   }
   failures.push(...linkFailures());
   return failures;

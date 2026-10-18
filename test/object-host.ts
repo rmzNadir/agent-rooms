@@ -1,96 +1,36 @@
-import { WorkerEnvironment } from "alchemy/Cloudflare";
-import { asOutput } from "alchemy/Output";
-import { Self } from "alchemy/Self";
-import { ConfigProvider, Effect, Layer } from "effect";
+import { ConfigProvider, Effect, Layer, Scope } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { buildApi } from "../src/api-worker.ts";
 import { readEnv, writeEnv } from "../src/boundary/external.ts";
-import { buildDirectory } from "../src/directory/directory-server.ts";
-import { buildRoom } from "../src/room/room-server.ts";
-import { callbackRuntime, memoryLayer } from "./sqlite-state.ts";
+import { legacySkip, memoryCredentials } from "../src/runtime/credentials.ts";
+import { roomsInMemory } from "../src/runtime/domain-host.ts";
+import { socketsSkip } from "../src/runtime/sockets.ts";
 
 const fulfill = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.runPromise(effect as Effect.Effect<A, never, never>);
 
-const boot = <E, R, FetchError, FetchEnv>(
-  setup: Effect.Effect<
-    Effect.Effect<
-      {
-        readonly fetch: Effect.Effect<
-          HttpServerResponse.HttpServerResponse,
-          FetchError,
-          FetchEnv
-        >;
-      },
-      E,
-      R
-    >
-  >,
-  name: string
-) => {
-  const sql = memoryLayer(name);
-  const runtime = callbackRuntime(() => undefined);
-  const ready = fulfill(
-    Effect.gen(function* () {
-      const inner = yield* setup;
-      return yield* inner;
-    }).pipe(Effect.provide(sql), Effect.provide(runtime))
-  );
-  return async (input: Request) => {
-    const shape = await ready;
-    const response = await fulfill(
-      shape.fetch.pipe(
-        Effect.provideService(
-          HttpServerRequest.HttpServerRequest,
-          HttpServerRequest.fromWeb(input)
-        ),
-        Effect.provide(sql),
-        Effect.provide(runtime)
-      )
-    );
-    return HttpServerResponse.toWeb(response);
-  };
-};
-
-const workerSelf = {
-  bind: () => () => Effect.void,
-  durableObjectNamespaces: asOutput({}),
-  export: () => Effect.void,
-  LogicalId: "Api",
-  Type: "Cloudflare.Worker",
-};
-
-const hostLayer = (
-  directory: (input: Request) => Promise<Response>,
-  rooms: Map<string, (input: Request) => Promise<Response>>
-) =>
+export const memoryHost = () =>
   Layer.mergeAll(
-    Layer.succeed(Self("Cloudflare.Worker"), workerSelf),
-    Layer.succeed(WorkerEnvironment, {
-      DirectoryServer: { getByName: () => ({ fetch: directory }) },
-      RoomServer: {
-        getByName: (name: string) => {
-          const cached = rooms.get(name);
-          if (cached !== undefined) {
-            return { fetch: cached };
-          }
-          const fetch = boot(buildRoom, name);
-          rooms.set(name, fetch);
-          return { fetch };
-        },
-      },
-    })
+    legacySkip,
+    memoryCredentials(),
+    socketsSkip,
+    roomsInMemory().pipe(Layer.provide(memoryCredentials()))
   );
 
-export type RoomHost = ReturnType<typeof hostLayer>;
-
-export const startHost = async (): Promise<RoomHost> => {
-  writeEnv("ALCHEMY_PHASE", "runtime");
-  const directory = await boot(buildDirectory, "directory");
-  return hostLayer(directory, new Map());
+const keep = async <A, E, R>(effect: Effect.Effect<A, E, R>) => {
+  const scope = await Effect.runPromise(Scope.make());
+  return fulfill(effect.pipe(Effect.provideService(Scope.Scope, scope)));
 };
 
-const envRecord = () => {
+export const startHost = async () => {
+  writeEnv("ALCHEMY_PHASE", "runtime");
+  const context = await keep(Layer.build(memoryHost()));
+  return Layer.succeedContext(context);
+};
+
+export type RoomHost = Awaited<ReturnType<typeof startHost>>;
+
+export const envRecord = () => {
   const record: Record<string, string> = {};
   for (const key of Object.keys(process.env)) {
     const value = readEnv(key);
@@ -101,17 +41,26 @@ const envRecord = () => {
   return record;
 };
 
-export const startApi = async () => {
+export const prepareRuntime = async () => {
   writeEnv("ALCHEMY_PHASE", "runtime");
   writeEnv("AGENT_ROOMS_ADMIN_TOKEN", "admin-token");
   writeEnv("AGENT_ROOMS_ADMIN_NAME", "human");
   const provider = ConfigProvider.fromEnv({ env: envRecord() });
-  const directory = await boot(buildDirectory, "directory");
-  const host = hostLayer(directory, new Map());
+  const scope = await Effect.runPromise(Scope.make());
+  return { provider, scope };
+};
+
+export const startApi = async () => {
+  const { provider, scope } = await prepareRuntime();
+  const context = await fulfill(
+    Layer.build(memoryHost()).pipe(Effect.provideService(Scope.Scope, scope))
+  );
+  const host = Layer.succeedContext(context);
   const shape = await fulfill(
     buildApi.pipe(
       Effect.provide(host),
-      Effect.provideService(ConfigProvider.ConfigProvider, provider)
+      Effect.provideService(ConfigProvider.ConfigProvider, provider),
+      Effect.provideService(Scope.Scope, scope)
     )
   );
   return {

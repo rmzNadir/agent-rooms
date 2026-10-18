@@ -33,6 +33,29 @@ const agentId = Schema.decodeUnknownSync(AgentId)(
 const statusOf = (schema: { readonly ast: AST }) =>
   resolveAt("httpApiStatus")(schema.ast);
 
+const claim = (ok: boolean) => {
+  if (!ok) {
+    throw new Error("schema claim failed");
+  }
+};
+
+const same = (decoded: object, value: object) => {
+  const record = decoded as Record<
+    string,
+    string | number | boolean | null | object
+  >;
+  const expected = value as Record<
+    string,
+    string | number | boolean | null | object
+  >;
+  for (const key of Object.keys(expected)) {
+    if (JSON.stringify(record[key]) !== JSON.stringify(expected[key])) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const trip = <
   Value extends {
     readonly _tag: string;
@@ -51,16 +74,18 @@ const trip = <
   tag: string,
   status: number
 ): Value => {
-  const encoded = JSON.parse(JSON.stringify(encode(value)));
+  const encoded = JSON.parse(JSON.stringify(encode(value))) as object;
   const decoded = decode(encoded);
-  expect(decoded).toMatchObject({
-    _tag: tag,
-    code: value.code,
-    message: value.message,
-    operation: value.operation,
-    requestId: value.requestId,
-    retryable: value.retryable,
-  });
+  claim(
+    same(decoded, {
+      _tag: tag,
+      code: value.code,
+      message: value.message,
+      operation: value.operation,
+      requestId: value.requestId,
+      retryable: value.retryable,
+    })
+  );
   if (Object.keys(value.details).length > 0) {
     let rejected = false;
     try {
@@ -68,15 +93,17 @@ const trip = <
     } catch {
       rejected = true;
     }
-    expect(rejected).toBe(true);
+    claim(rejected);
   }
-  expect(statusOf(schema)).toBe(status);
-  expect(publicErrorBody(value)).toMatchObject({
-    code: value.code,
-    message: value.message,
-    requestId: value.requestId,
-    retryable: value.retryable,
-  });
+  claim(statusOf(schema) === status);
+  claim(
+    same(publicErrorBody(value), {
+      code: value.code,
+      message: value.message,
+      requestId: value.requestId,
+      retryable: value.retryable,
+    })
+  );
   return decoded;
 };
 

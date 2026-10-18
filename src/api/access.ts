@@ -34,21 +34,31 @@ export const rotatePattern = /^\/admin\/agents\/(agent_[0-9a-f]{24})\/rotate$/;
 export const webhookPattern =
   /^\/admin\/agents\/(agent_[0-9a-f]{24})\/webhook$/;
 
+export const bearerToken = (
+  header: string | number | boolean | object | null | undefined
+) => {
+  if (typeof header !== "string") {
+    return;
+  }
+  const matched = bearerPattern.exec(header);
+  if (matched === null) {
+    return;
+  }
+  return matched[1];
+};
+
+export const matchedId = (match: RegExpExecArray) => {
+  const [, id] = match;
+  return id === undefined ? "" : id;
+};
+
 const tokenFrom = (request: HttpServerRequest.HttpServerRequest) => {
-  const header = at(request.headers, "authorization");
-  if (typeof header === "string") {
-    const match = bearerPattern.exec(header);
-    const [, bearer] = match ?? [];
-    if (bearer !== undefined && bearer.length > 0) {
-      return bearer;
-    }
+  const bearer = bearerToken(at(request.headers, "authorization"));
+  if (bearer !== undefined) {
+    return bearer;
   }
   return at(request.cookies, "agent_rooms_token") ?? "";
 };
-
-const requestIdOf = Effect.catchTag(makeRequestId(), "SchemaError", () =>
-  Effect.succeed(internalRequestId)
-);
 
 const unauthorized = (requestId: RequestId) =>
   new Unauthorized({
@@ -79,7 +89,7 @@ export const authed = <R>(
   finishResponse(
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const requestId = yield* requestIdOf;
+      const requestId = yield* Effect.orDie(makeRequestId());
       const token = tokenFrom(request);
       if (token.length === 0) {
         return yield* unauthorized(requestId);
@@ -156,7 +166,7 @@ export const readJson = <A>(
 
 export const sinceParam = (url: URL) => {
   const raw = url.searchParams.get("since");
-  return raw === null ? 0 : Number(raw);
+  return raw === null ? 0 : Number(Array.from(raw).join(""));
 };
 
 export const notFound = json(404, {

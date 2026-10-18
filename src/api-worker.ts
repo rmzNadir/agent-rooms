@@ -2,20 +2,23 @@ import { Worker } from "alchemy/Cloudflare";
 import { Config, Effect, Layer } from "effect";
 import { dispatch } from "./api/dispatch.ts";
 import { chatLayer } from "./app/chat.ts";
-import DirectoryServer from "./directory/directory-server.ts";
-import RoomServer from "./room/room-server.ts";
+import { roomsOnCloudflare } from "./runtime/domain-host.ts";
+import {
+  type DoorNamespace,
+  doorCredentials,
+  doorLegacy,
+  doorSockets,
+} from "./runtime/legacy-client.ts";
+import { DirectoryServer, RoomServer } from "./runtime/legacy-door.ts";
 
 export const adminTokenKey = "AGENT_ROOMS_ADMIN_TOKEN";
 export const adminNameKey = "AGENT_ROOMS_ADMIN_NAME";
 export const defaultAdminName = "human";
 
 export const buildApi = Effect.gen(function* () {
-  yield* RoomServer;
-  yield* DirectoryServer;
   yield* Config.Redacted(adminTokenKey);
   yield* Config.String(adminNameKey).pipe(Config.withDefault(defaultAdminName));
-  // Fetch does not carry the Worker service. Build the clients here, while it does, and close over them.
-  const chatServices = yield* Effect.scoped(Layer.build(chatLayer));
+  const chatServices = yield* Layer.build(chatLayer);
   return {
     fetch: dispatch.pipe(Effect.provide(Layer.succeedContext(chatServices))),
   };
@@ -28,8 +31,38 @@ export const apiOptions = {
   main: import.meta.url,
 };
 
+const asDoor = (value: object) => value as DoorNamespace;
+
+export const bootWith = <Services, Host>(
+  directory: Effect.Effect<object, never, Services>,
+  room: Effect.Effect<object, never, Services>,
+  hostedLayer: () => Host
+) =>
+  Effect.gen(function* () {
+    const directoryNs = asDoor(yield* directory);
+    const roomNs = asDoor(yield* room);
+    const credentials = doorCredentials(directoryNs);
+    const hosted = Layer.provide(
+      hostedLayer() as Layer.Layer<never>,
+      credentials
+    );
+    const legacy = doorLegacy(directoryNs, roomNs).pipe(
+      Layer.provide(hosted),
+      Layer.provide(credentials)
+    );
+    const sockets = doorSockets(roomNs);
+    return yield* buildApi.pipe(
+      Effect.provide(legacy),
+      Effect.provide(hosted),
+      Effect.provide(credentials),
+      Effect.provide(sockets)
+    );
+  });
+
+const boot = bootWith(DirectoryServer, RoomServer, roomsOnCloudflare);
+
 export default class Api extends Worker<Api>()(
   apiWorkerName,
   apiOptions,
-  buildApi
+  boot
 ) {}

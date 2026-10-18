@@ -87,6 +87,7 @@ export const memoryLayer = (name: string) => {
     },
   };
   const state = asService<Effect.Success<typeof DurableObjectState>>({
+    acceptWebSocket: () => Effect.void,
     getWebSockets: () => Effect.succeed([]),
     id: { equals: () => false, name, toString: () => name },
     storage,

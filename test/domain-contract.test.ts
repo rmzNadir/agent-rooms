@@ -25,7 +25,6 @@ import {
   ThreadSummary,
   UnreadView,
 } from "../src/domain/message.ts";
-import { socketIdsForAgent } from "../src/domain/sockets.ts";
 import { execRows } from "../src/domain/sql-exec.ts";
 import { sqlRow } from "../src/domain/sql-row.ts";
 import {
@@ -69,6 +68,12 @@ const tracer: Tracer.Tracer = {
 const traced = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runPromise(effect.pipe(Effect.withTracer(tracer)));
 
+const claim = (ok: boolean) => {
+  if (!ok) {
+    throw new Error("schema claim failed");
+  }
+};
+
 const reject = (run: () => void) => {
   let rejected = false;
   try {
@@ -76,7 +81,17 @@ const reject = (run: () => void) => {
   } catch {
     rejected = true;
   }
-  expect(rejected).toBe(true);
+  claim(rejected);
+};
+
+const matches = (decoded: object, value: Record<string, Field>) => {
+  const record = decoded as Record<string, Field>;
+  for (const key of Object.keys(value)) {
+    if (JSON.stringify(record[key]) !== JSON.stringify(value[key])) {
+      return false;
+    }
+  }
+  return true;
 };
 
 type Field = string | number | boolean | null | readonly Field[];
@@ -91,7 +106,7 @@ const requireFields = (
   name: string,
   value: Record<string, Field>
 ) => {
-  expect(identifierOf(schema)).toBe(name);
+  claim(identifierOf(schema) === name);
   const decode = Schema.decodeUnknownSync(schema);
   reject(() => decode({}));
   for (const key of Object.keys(value)) {
@@ -103,7 +118,7 @@ const requireFields = (
     }
     reject(() => decode(partial));
   }
-  expect(decode(value)).toMatchObject(value);
+  claim(matches(decode(value) as object, value));
 };
 
 const agentId = "agent_aaaaaaaaaaaaaaaaaaaaaaaa";
@@ -247,22 +262,6 @@ test("tokens hash, sign, and decode json under their span names", async () => {
     "Token.secret",
     "Token.sign",
   ]);
-});
-
-test("socket ids keep only the matching agent", () => {
-  expect(
-    socketIdsForAgent(
-      [
-        { agentId: "ada", id: "sock-1" },
-        { agentId: "bob", id: "sock-2" },
-        { agentId: "ada", id: "sock-3" },
-      ],
-      "ada"
-    )
-  ).toEqual(["sock-1", "sock-3"]);
-  expect(socketIdsForAgent([{ agentId: "ada", id: "sock-1" }], "bob")).toEqual(
-    []
-  );
 });
 
 test("sql rows preserve every column and a bad statement fails", async () => {

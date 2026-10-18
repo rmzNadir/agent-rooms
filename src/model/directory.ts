@@ -9,6 +9,7 @@ import {
 } from "./rejections.ts";
 
 const AgentState = Schema.Struct({
+  admin: Schema.optional(Schema.Boolean),
   agentId: AgentId,
   displayName: Schema.String,
   kind: MemberKind,
@@ -47,15 +48,34 @@ export class RoomReserved extends Event("RoomReserved", {
   topic: Schema.String,
 }) {}
 
+const ImportedAgent = Schema.Struct({
+  admin: Schema.optional(Schema.Boolean),
+  agentId: AgentId,
+  displayName: Schema.String,
+  kind: MemberKind,
+  tokenHash: Schema.String,
+});
+
 export class RegisterAgent extends Command("RegisterAgent", {
   events: [AgentRegistered],
   input: {
+    admin: Schema.optional(Schema.Boolean),
     agentId: AgentId,
     displayName: Schema.String,
     kind: MemberKind,
     tokenHash: Schema.String,
   },
   rejects: [AgentAlreadyRegistered],
+  target: directoryId,
+}) {}
+
+export class RegisterImported extends Command("RegisterImported", {
+  events: [AgentRegistered, RoomReserved],
+  input: {
+    agents: Schema.Array(ImportedAgent),
+    rooms: Schema.Array(RoomListing),
+  },
+  rejects: [],
   target: directoryId,
 }) {}
 
@@ -80,28 +100,60 @@ export class ReserveRoom extends Command("ReserveRoom", {
 }) {}
 
 type Registered = InstanceType<typeof RegisterAgent>;
+type Imported = InstanceType<typeof RegisterImported>;
 type Rotated = InstanceType<typeof RotateToken>;
 type Reserved = InstanceType<typeof ReserveRoom>;
 
 const knownAgent = (state: DirectoryState, agentId: AgentId) =>
   state.agents.some((agent) => agent.agentId === agentId);
 
+const enrolled = (agent: {
+  readonly admin?: boolean | undefined;
+  readonly agentId: AgentId;
+  readonly displayName: string;
+  readonly kind: "agent" | "human";
+  readonly tokenHash: string;
+}) => ({
+  agentId: agent.agentId,
+  displayName: agent.displayName,
+  kind: agent.kind,
+  tokenHash: agent.tokenHash,
+  ...(agent.admin === true ? { admin: true } : {}),
+});
+
 export const Directory = Aggregate("Directory", {
-  commands: [RegisterAgent, RotateToken, ReserveRoom],
+  commands: [RegisterAgent, RegisterImported, RotateToken, ReserveRoom],
   decide: {
     RegisterAgent: (state: DirectoryState, command: Registered) =>
       knownAgent(state, command.agentId)
         ? new AgentAlreadyRegistered()
         : [
             new AgentRegistered({
-              agent: {
-                agentId: command.agentId,
-                displayName: command.displayName,
-                kind: command.kind,
-                tokenHash: command.tokenHash,
-              },
+              agent: enrolled(command),
             }),
           ],
+    RegisterImported: (state: DirectoryState, command: Imported) => {
+      if (state.agents.length > 0) {
+        return [];
+      }
+      return [
+        ...command.agents.map(
+          (agent) =>
+            new AgentRegistered({
+              agent: enrolled(agent),
+            })
+        ),
+        ...command.rooms.map(
+          (room) =>
+            new RoomReserved({
+              leadId: room.leadId,
+              name: room.name,
+              roomId: room.roomId,
+              topic: room.topic,
+            })
+        ),
+      ];
+    },
     ReserveRoom: (state: DirectoryState, command: Reserved) => {
       const missing = command.memberIds.find(
         (agentId) => !knownAgent(state, agentId)

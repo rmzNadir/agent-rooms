@@ -2,6 +2,7 @@ import { Command } from "alchemy/Domain";
 import { Schema } from "effect";
 import { MemberKind } from "../domain/actor.ts";
 import { AgentId, RoomId } from "../domain/ids.ts";
+import { LegacyRoomSchema } from "./migrate.ts";
 import {
   AlreadyOpen,
   MentionRequired,
@@ -15,6 +16,7 @@ import {
   UnknownMention,
 } from "./rejections.ts";
 import {
+  HopRecorded,
   LeadTransferred,
   MemberInvited,
   MemberJoined,
@@ -128,6 +130,13 @@ export class MarkRead extends Command("MarkRead", {
   events: [ReadAdvanced],
   input: { actorId: AgentId, seq: Schema.Number },
   rejects: [RoomMissing, NotMember],
+  target: RoomId,
+}) {}
+
+export class RecordImport extends Command("RecordImport", {
+  events: [RoomOpened, MessagePosted, RoomPaused, HopRecorded],
+  input: { room: LegacyRoomSchema },
+  rejects: [],
   target: RoomId,
 }) {}
 

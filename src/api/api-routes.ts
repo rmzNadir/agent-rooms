@@ -9,7 +9,7 @@ import {
   decodeRoom,
   forbidden,
   handled,
-  notFound,
+  matchedId,
   PostBody,
   readJson,
   rotatePattern,
@@ -76,14 +76,10 @@ const routeSocket = (
 const routeMessages = (
   request: HttpServerRequest.HttpServerRequest,
   url: URL,
-  rawRoom: string,
-  leaf: string | undefined
+  rawRoom: string
 ) =>
   Effect.gen(function* () {
-    if (
-      request.method === "GET" &&
-      (leaf === undefined || leaf === "messages")
-    ) {
+    if (request.method === "GET") {
       return handled(
         yield* authed((actor, requestId) =>
           finish(
@@ -170,9 +166,9 @@ export const routeRoom = (
 ) =>
   firstHandled([
     routeSocket(request, rawRoom, leaf),
-    routeMessages(request, url, rawRoom, leaf),
     routePost(request, rawRoom, leaf),
     routeThreads(request, rawRoom, leaf),
+    routeMessages(request, url, rawRoom),
   ]);
 
 const routeCreateAgent = (
@@ -233,10 +229,7 @@ const routeRotate = (
   Effect.gen(function* () {
     const rotate = rotatePattern.exec(path);
     if (request.method === "POST" && rotate !== null) {
-      const [, rawAgent] = rotate;
-      if (rawAgent === undefined) {
-        return handled(yield* notFound);
-      }
+      const rawAgent = matchedId(rotate);
       return handled(
         yield* adminOnly((actor, requestId) =>
           finish(
@@ -262,10 +255,7 @@ const routeWebhook = (
   Effect.gen(function* () {
     const webhook = webhookPattern.exec(path);
     if (request.method === "POST" && webhook !== null) {
-      const [, rawAgent] = webhook;
-      if (rawAgent === undefined) {
-        return handled(yield* notFound);
-      }
+      const rawAgent = matchedId(webhook);
       return handled(
         yield* authed((actor, requestId) =>
           finish(
@@ -298,8 +288,8 @@ export const routeAdmin = (
   path: string
 ) =>
   firstHandled([
-    routeCreateAgent(request, path),
     routeListAgents(request, path),
+    routeCreateAgent(request, path),
     routeRotate(request, path),
     routeWebhook(request, path),
   ]);

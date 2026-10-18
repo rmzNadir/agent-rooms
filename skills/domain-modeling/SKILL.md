@@ -13,7 +13,7 @@ Room is the consistency boundary. Directory is the registry. Wake delivery is a 
 - Events are past tense. `evolve` only folds them.
 - `decide` is pure. Aggregates do not fetch, write files, or import Cloudflare.
 - `src/model` and `src/domain` do not import `src/api`, `src/room`, `src/directory`, `src/mcp`, or `src/runtime`.
-- The API worker keeps the SQLite runtime. `roomsOnCloudflare` is the hosted path and is not wired into the worker.
+- The API worker hosts the model with `roomsOnCloudflare`. Legacy SQLite is read once, on first access, and then deleted from the running path.
 
 ## Read next
 

@@ -229,9 +229,8 @@ Display names are mention tokens: a letter, then letters, digits, `_`, or `-`. R
 
 ## Layout
 
-- `src/api-worker.ts` is the Worker fetch handler for `/mcp`, the viewer, and admin routes.
-- `src/room/room-server.ts` is one SQLite Durable Object per room.
-- `src/directory/directory-server.ts` stores hashed tokens and the room index.
-- `src/room/room-client.ts` and `src/directory/directory-client.ts` are the only modules that touch stubs.
+- `src/api-worker.ts` is the Worker fetch handler for `/mcp`, the viewer, and admin routes. It hosts the domain model.
+- `src/runtime/legacy-door.ts` reads an existing SQLite object once, on first access, and replays it into the model.
+- `src/model` is the room and directory behavior after that import.
 - `listeners/` holds the Claude Code and Codex wake listeners.
 - `docs/coding-standards.md` and `docs/errors.md` are the Effect and error rules for this repo.

@@ -4,6 +4,62 @@ import { AgentId, RoomId } from "../domain/ids.ts";
 import type { MemberState, MessageState } from "./room-shape.ts";
 import { MessagePosted, RoomOpened, RoomPaused } from "./room-shape.ts";
 
+const LegacyMemberSchema = Schema.Struct({
+  agentId: Schema.String,
+  displayName: Schema.String,
+  joined: Schema.Boolean,
+  kind: Schema.Literals(["agent", "human"]),
+  lastReadSeq: Schema.Number,
+  role: Schema.Literals(["lead", "member"]),
+  webhookSecret: Schema.String,
+  webhookUrl: Schema.String,
+});
+
+const LegacyMessageSchema = Schema.Struct({
+  authorId: Schema.String,
+  authorKind: Schema.Literals(["agent", "human"]),
+  authorName: Schema.String,
+  body: Schema.String,
+  createdAt: Schema.Number,
+  mentions: Schema.Array(Schema.String),
+  reactions: Schema.optional(
+    Schema.Array(
+      Schema.Struct({ agentId: Schema.String, emoji: Schema.String })
+    )
+  ),
+  redacted: Schema.Boolean,
+  replyTo: Schema.NullOr(Schema.Number),
+  seq: Schema.Number,
+  threadRoot: Schema.NullOr(Schema.Number),
+});
+
+const LegacyAgentSchema = Schema.Struct({
+  admin: Schema.optional(Schema.Boolean),
+  agentId: Schema.String,
+  displayName: Schema.String,
+  kind: Schema.Literals(["agent", "human"]),
+  tokenHash: Schema.String,
+  webhookSecret: Schema.optional(Schema.String),
+  webhookUrl: Schema.optional(Schema.String),
+});
+
+export const LegacyRoomSchema = Schema.Struct({
+  hopCount: Schema.Number,
+  leadId: Schema.String,
+  members: Schema.Array(LegacyMemberSchema),
+  messages: Schema.Array(LegacyMessageSchema),
+  name: Schema.String,
+  paused: Schema.Boolean,
+  roomId: Schema.String,
+  topic: Schema.String,
+});
+export type LegacyRoomInput = typeof LegacyRoomSchema.Type;
+
+export const LegacyDirectorySchema = Schema.Struct({
+  agents: Schema.Array(LegacyAgentSchema),
+  rooms: Schema.Array(LegacyRoomSchema),
+});
+
 export const cutoverRule =
   "replay into the existing room and directory objects only when their event log is empty";
 
@@ -31,6 +87,12 @@ interface LegacyMessage {
   readonly body: string;
   readonly createdAt: number;
   readonly mentions: readonly string[];
+  readonly reactions?:
+    | readonly {
+        readonly agentId: string;
+        readonly emoji: string;
+      }[]
+    | undefined;
   readonly redacted: boolean;
   readonly replyTo: number | null;
   readonly seq: number;
@@ -50,10 +112,13 @@ interface LegacyRoom {
 
 export interface LegacyDirectory {
   readonly agents: readonly {
+    readonly admin?: boolean | undefined;
     readonly agentId: string;
     readonly displayName: string;
     readonly kind: "agent" | "human";
     readonly tokenHash: string;
+    readonly webhookSecret?: string | undefined;
+    readonly webhookUrl?: string | undefined;
   }[];
   readonly rooms: readonly LegacyRoom[];
 }
@@ -74,12 +139,26 @@ const messageState = (message: LegacyMessage): MessageState => ({
   body: message.body,
   createdAt: message.createdAt,
   mentions: [...message.mentions],
-  reactions: [],
+  reactions:
+    message.reactions === undefined
+      ? []
+      : message.reactions.map((reaction) => ({
+          agentId: Schema.decodeUnknownSync(AgentId)(reaction.agentId),
+          emoji: reaction.emoji,
+        })),
   redacted: message.redacted,
   replyTo: message.replyTo,
   seq: message.seq,
   threadRoot: message.threadRoot,
 });
+
+export const plannedRoom = <Room>(rooms: readonly Room[]) => {
+  const [planned] = rooms;
+  if (planned === undefined) {
+    throw new Error("The room import plan was empty.");
+  }
+  return planned;
+};
 
 export const importPlan = (directory: LegacyDirectory) => {
   const secrets: SecretCopy[] = [];
@@ -92,6 +171,7 @@ export const importPlan = (directory: LegacyDirectory) => {
       });
     }
     const opened = new RoomOpened({
+      hopCount: room.hopCount,
       leadId: Schema.decodeUnknownSync(AgentId)(room.leadId),
       members: room.members.map(memberState),
       name: room.name,

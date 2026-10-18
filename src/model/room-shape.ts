@@ -64,6 +64,7 @@ export const initialRoom: RoomState = {
 };
 
 export class RoomOpened extends Event("RoomOpened", {
+  hopCount: Schema.optional(Schema.Number),
   leadId: AgentId,
   members: Schema.Array(MemberState),
   name: Schema.String,
@@ -126,4 +127,8 @@ export class WakeDelivered extends Event("WakeDelivered", {
 
 export class WakeExpired extends Event("WakeExpired", {
   id: Schema.String,
+}) {}
+
+export class HopRecorded extends Event("HopRecorded", {
+  hopCount: Schema.Number,
 }) {}

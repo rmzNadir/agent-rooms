@@ -7,6 +7,7 @@ import {
   AgentRegistered,
   Directory,
   RegisterAgent,
+  RegisterImported,
   ReserveRoom,
   RoomReserved,
   RotateToken,
@@ -190,4 +191,36 @@ test("the import plan copies secrets beside events and does not embed them", () 
   expect(encoded.includes("hash-1")).toBe(false);
   expect(encoded.includes("kept")).toBe(true);
   expect(encoded.includes("RoomPaused")).toBe(true);
+});
+
+test("a second directory import adds nobody", async () => {
+  const lead = {
+    agentId: leadId,
+    displayName: "Lead",
+    kind: "agent" as const,
+    tokenHash: "hash-1",
+  };
+  const sam = {
+    agentId: agent("agent_cccccccccccccccccccccccc"),
+    displayName: "Sam",
+    kind: "agent" as const,
+    tokenHash: "hash-2",
+  };
+  await run(
+    story(
+      Story.when(
+        directory,
+        new RegisterImported({ agents: [lead], rooms: [] })
+      ),
+      Story.then(directory, new AgentRegistered({ agent: lead })),
+      Story.when(
+        directory,
+        new RegisterImported({ agents: [lead, sam], rooms: [] })
+      ),
+      Story.then(directory)
+    )
+  );
+  expect(
+    () => new RegisterImported({ agents: [{}], rooms: [] } as never)
+  ).toThrow();
 });

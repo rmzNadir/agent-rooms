@@ -2,6 +2,7 @@ import { Aggregate } from "alchemy/Domain";
 import type { DateTime } from "effect";
 import type { AgentId } from "../domain/ids.ts";
 import { RoomId } from "../domain/ids.ts";
+import { importPlan, type LegacyDirectory, plannedRoom } from "./migrate.ts";
 import { AlreadyOpen } from "./rejections.ts";
 import {
   EditMessage,
@@ -14,11 +15,13 @@ import {
   PostMessage,
   ReactToMessage,
   RecordDelivery,
+  RecordImport,
   RedactMessage,
 } from "./room-commands.ts";
 import {
   applyDelivery,
   applyEdited,
+  applyHop,
   applyInvited,
   applyJoined,
   applyLead,
@@ -46,6 +49,7 @@ import {
   epochMillis,
 } from "./room-rules.ts";
 import {
+  HopRecorded,
   initialRoom,
   type MemberState,
   type MessageState,
@@ -61,6 +65,7 @@ const on =
 export const Room = Aggregate("Room", {
   commands: [
     OpenRoom,
+    RecordImport,
     InviteMember,
     JoinRoom,
     LeaveRoom,
@@ -105,10 +110,27 @@ export const Room = Aggregate("Room", {
       decideReact(state, command),
     RecordDelivery: (state: RoomState, command: RecordDelivery) =>
       decideRecord(state, command.id),
+    RecordImport: (state: RoomState, command: RecordImport) => {
+      if (state.open) {
+        return [];
+      }
+      const plan = importPlan({
+        agents: [],
+        rooms: [command.room],
+      } as LegacyDirectory);
+      const planned = plannedRoom(plan.rooms);
+      return [
+        ...planned.events,
+        new HopRecorded({ hopCount: planned.hopCount }),
+      ];
+    },
     RedactMessage: (state: RoomState, command: RedactMessage) =>
       decideRedact(state, command),
   },
   evolve: {
+    HopRecorded: on<{ readonly hopCount: number }>((state, event) =>
+      applyHop(state, event.hopCount)
+    ),
     LeadTransferred: on<{ readonly agentId: AgentId }>((state, event) =>
       applyLead(state, event.agentId)
     ),
