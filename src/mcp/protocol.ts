@@ -1,66 +1,132 @@
-export const supportedProtocolVersions = ["2026-07-28", "2025-11-25", "2025-06-18"] as const
+import { Effect } from "effect";
+import type { Json } from "effect/Schema";
+import { at, isJsonObject, parseJson } from "../boundary/external.ts";
 
-export type SupportedProtocolVersion = (typeof supportedProtocolVersions)[number]
+export const supportedProtocolVersions = [
+  "2026-07-28",
+  "2025-11-25",
+  "2025-06-18",
+] as const;
 
-export const protocolVersionMetaKey = "io.modelcontextprotocol/protocolVersion"
+export type SupportedProtocolVersion =
+  (typeof supportedProtocolVersions)[number];
 
-export const isSupportedProtocolVersion = (value: string): value is SupportedProtocolVersion =>
-  (supportedProtocolVersions as readonly string[]).includes(value)
+export const protocolVersionMetaKey = "io.modelcontextprotocol/protocolVersion";
 
-export const modernProtocolVersions = supportedProtocolVersions.filter((version) => version >= "2026-01-01")
+const modernVersion = "2026-07-28";
 
-const idOf = (value: unknown): string | number | null => {
-  if (value === null) return null
-  if (typeof value === "string" || typeof value === "number") return value
-  return null
+const isSupportedProtocolVersion = (
+  value: string
+): value is SupportedProtocolVersion =>
+  (supportedProtocolVersions as readonly string[]).includes(value);
+
+export const modernProtocolVersions = supportedProtocolVersions.filter(
+  (version) => version === modernVersion
+);
+
+export interface VersionRejection {
+  readonly id: string | number | null;
+  readonly requested: string;
 }
 
-export type VersionRejection = {
-  readonly id: string | number | null
-  readonly requested: string
-}
-
-const rejectionFrom = (parsed: unknown, protocolHeader: string | null): VersionRejection | undefined => {
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
-  const message = parsed as { id?: unknown; method?: unknown; params?: unknown }
-  const params =
-    message.params !== null && typeof message.params === "object" && !Array.isArray(message.params)
-      ? (message.params as Record<string, unknown>)
-      : undefined
-  const meta = params?._meta
-  const metaObject =
-    meta !== null && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : undefined
-  const metaVersion = metaObject?.[protocolVersionMetaKey]
-  const initVersion = message.method === "initialize" ? params?.protocolVersion : undefined
-  const declared = [protocolHeader, metaVersion, initVersion].filter(
-    (version): version is string => typeof version === "string" && version.length > 0,
-  )
-  const requested = declared.find((version) => !isSupportedProtocolVersion(version))
-  if (requested === undefined) return undefined
-  return { id: idOf(message.id), requested }
-}
-
-export const versionRejection = (bodyText: string, protocolHeader: string | null): VersionRejection | undefined => {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(bodyText)
-  } catch {
-    return undefined
+const idOf = (value: Json | undefined): string | number | null => {
+  if (typeof value === "string" || typeof value === "number") {
+    return value;
   }
-  if (!Array.isArray(parsed)) return rejectionFrom(parsed, protocolHeader)
-  for (const item of parsed) {
-    const rejection = rejectionFrom(item, protocolHeader)
-    if (rejection !== undefined) return rejection
-  }
-  return undefined
-}
+  return null;
+};
 
-export const unsupportedProtocolVersionBody = (rejection: VersionRejection) => ({
-  jsonrpc: "2.0",
-  id: rejection.id,
+const textVersion = (value: Json | undefined): string | undefined =>
+  typeof value === "string" && value.length > 0 ? value : undefined;
+
+const primitiveBody = (value: Json | undefined | symbol) =>
+  value === null ||
+  typeof value === "string" ||
+  typeof value === "number" ||
+  typeof value === "boolean";
+
+// A failed parse is a symbol. Reading fields from it finds no version, so the caller sees no rejection.
+const malformedBody = Symbol("malformed");
+
+const readBody = (bodyText: string) =>
+  Effect.runSync(
+    Effect.orElseSucceed(
+      Effect.try(() => parseJson(bodyText)),
+      () => malformedBody
+    )
+  );
+
+const rejectionFrom = (
+  parsed: { readonly [key: string]: Json },
+  protocolHeader: string | null
+): VersionRejection | undefined => {
+  const paramsValue = at(parsed, "params");
+  const params = isJsonObject(paramsValue) ? paramsValue : undefined;
+  const metaValue = params === undefined ? undefined : at(params, "_meta");
+  const meta = isJsonObject(metaValue) ? metaValue : undefined;
+  const metaVersion =
+    meta === undefined
+      ? undefined
+      : textVersion(at(meta, protocolVersionMetaKey));
+  const method = at(parsed, "method");
+  const initVersion =
+    method === "initialize" && params !== undefined
+      ? textVersion(at(params, "protocolVersion"))
+      : undefined;
+  const headerVersion =
+    protocolHeader !== null && protocolHeader.length > 0
+      ? protocolHeader
+      : undefined;
+  const requested = [headerVersion, metaVersion, initVersion].find(
+    (version) => version !== undefined && !isSupportedProtocolVersion(version)
+  );
+  if (requested === undefined) {
+    return undefined;
+  }
+  return { id: idOf(at(parsed, "id")), requested };
+};
+
+const rejectionIn = (
+  parsed: Json | undefined | symbol,
+  protocolHeader: string | null
+): VersionRejection | undefined => {
+  if (primitiveBody(parsed)) {
+    return undefined;
+  }
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      const rejection = isJsonObject(item)
+        ? rejectionFrom(item, protocolHeader)
+        : undefined;
+      if (rejection !== undefined) {
+        return rejection;
+      }
+    }
+    return undefined;
+  }
+  return rejectionFrom(
+    parsed as { readonly [column: string]: Json },
+    protocolHeader
+  );
+};
+
+export const versionRejection = (
+  bodyText: string,
+  protocolHeader: string | null
+): VersionRejection | undefined =>
+  rejectionIn(readBody(bodyText), protocolHeader);
+
+export const unsupportedProtocolVersionBody = (
+  rejection: VersionRejection
+) => ({
   error: {
-    code: -32022,
+    code: -32_022,
+    data: {
+      requested: rejection.requested,
+      supported: [...supportedProtocolVersions],
+    },
     message: "Unsupported protocol version",
-    data: { supported: [...supportedProtocolVersions], requested: rejection.requested },
   },
-})
+  id: rejection.id,
+  jsonrpc: "2.0" as const,
+});

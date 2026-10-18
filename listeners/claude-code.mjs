@@ -1,8 +1,14 @@
-import { findSessionId, serve, sessionFor, spawnHarness, writeMcpConfig, writeSession } from "./common.mjs"
+import {
+  rememberSession,
+  sessionFor,
+  spawnHarness,
+  writeMcpConfig,
+} from "./listener-io.mjs";
+import { serve } from "./listener-wake.mjs";
 
 serve(async (wake, config, prompt) => {
-  const mcpConfig = writeMcpConfig(config)
-  const previous = sessionFor(wake.roomId, wake.agentId)
+  const mcpConfig = writeMcpConfig(config);
+  const previous = sessionFor(wake.roomId, wake.agentId);
   const args = [
     ...config.claudeExtraArgs,
     "-p",
@@ -11,15 +17,15 @@ serve(async (wake, config, prompt) => {
     "json",
     "--mcp-config",
     mcpConfig,
-  ]
-  if (previous !== undefined) args.push("--resume", previous)
+  ];
+  if (previous !== undefined) {
+    args.push("--resume", previous);
+  }
   const result = await spawnHarness({
-    bin: config.claudeBin,
     args,
+    bin: config.claudeBin,
     cwd: config.workdir,
     env: { AGENT_ROOMS_TOKEN: config.bearerToken },
-  })
-  const sessionId = findSessionId(result.body.stdout ?? "")
-  if (sessionId !== undefined) writeSession(wake.roomId, wake.agentId, sessionId)
-  return result
-})
+  });
+  return rememberSession(wake, result);
+});

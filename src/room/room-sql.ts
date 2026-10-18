@@ -1,4 +1,3 @@
-import { DurableObjectState } from "alchemy/Cloudflare";
 import { Effect, Schema } from "effect";
 import { MemberKind } from "../domain/actor.ts";
 import {
@@ -13,13 +12,13 @@ import {
   type RequestId,
   type RoomId,
 } from "../domain/ids.ts";
-import { sqlRow } from "../domain/sql-row.ts";
+import { execRows } from "../domain/sql-exec.ts";
 
 export const SocketSession = Schema.Struct({
   agentId: Schema.String,
   id: Schema.String,
 });
-export const WakeJob = Schema.Struct({ agentId: AgentId });
+const WakeJob = Schema.Struct({ agentId: AgentId });
 export const decodeWakeJob = Schema.decodeUnknownEffect(WakeJob);
 export const decodeAgentId = Schema.decodeUnknownEffect(AgentId);
 export const decodeKind = Schema.decodeUnknownEffect(MemberKind);
@@ -112,21 +111,7 @@ export const roomQuery = (
   requestId: RequestId,
   sql: string,
   ...bindings: Array<string | number | null>
-) =>
-  Effect.gen(function* () {
-    const current = yield* DurableObjectState;
-    const cursor = yield* current.storage.sql
-      .exec<Record<string, string | number | null>>(sql, ...bindings)
-      .pipe(
-        Effect.catchDefect(() => Effect.fail(persist(requestId, "room.sql")))
-      );
-    const rows = yield* cursor
-      .toArray()
-      .pipe(
-        Effect.catchDefect(() => Effect.fail(persist(requestId, "room.sql")))
-      );
-    return rows.map(sqlRow);
-  });
+) => execRows(sql, bindings, persist(requestId, "room.sql"));
 export const migrateRoom = Effect.gen(function* () {
   const statements = [
     `CREATE TABLE IF NOT EXISTS room_flags (

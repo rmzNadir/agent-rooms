@@ -3,7 +3,7 @@ const escapeHtml = (value: string) =>
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
+    .replaceAll('"', "&quot;");
 
 export const viewerHtml = (roomId: string | null) => `<!doctype html>
 <html lang="en">
@@ -121,4 +121,4 @@ export const viewerHtml = (roomId: string | null) => `<!doctype html>
     }).catch((error) => showError(error))
   </script>
 </body>
-</html>`
+</html>`;

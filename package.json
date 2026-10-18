@@ -2,21 +2,20 @@
   "name": "agent-rooms",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "license": "MIT",
-  "packageManager": "bun@1.4.3",
-  "engines": {
-    "node": ">=22"
-  },
+  "type": "module",
   "scripts": {
-    "check": "tsc --noEmit -p tsconfig.json && bun test test/wake-policy.test.ts test/transcript.test.ts test/listener-sign.test.ts test/webhook-url.test.ts test/admin-auth.test.ts test/wake-cursor.test.ts test/listener-flight.test.ts test/session-file.test.ts test/socket-close.test.ts test/harness.test.ts test/request-url.test.ts test/protocol-version.test.ts test/mcp-guide.test.ts test/mcp-instructions.test.ts test/mcp-watch.test.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test test/wake-policy.test.ts test/transcript.test.ts test/listener-sign.test.ts test/webhook-url.test.ts test/admin-auth.test.ts test/wake-cursor.test.ts test/listener-flight.test.ts test/session-file.test.ts test/socket-close.test.ts test/harness.test.ts test/request-url.test.ts test/protocol-version.test.ts test/mcp-guide.test.ts test/mcp-instructions.test.ts test/mcp-watch.test.ts",
-    "test:integration": "bun test --timeout 180000 test/integration.test.ts",
-    "test:conformance": "bun test --timeout 180000 test/conformance.test.ts",
-    "dev": "alchemy dev",
+    "agents": "bun scripts/agents.ts",
+    "check": "tsc --noEmit -p tsconfig.json && biome check . && bun scripts/quality.ts",
     "deploy": "alchemy deploy",
-    "agents": "bun scripts/agents.ts"
+    "dev": "alchemy dev",
+    "duplicates": "jscpd",
+    "knip": "knip",
+    "mutate": "stryker",
+    "test": "bun scripts/quality.ts --unit",
+    "test:conformance": "bun test --timeout 180000 test/conformance.test.ts",
+    "test:integration": "bun test --timeout 180000 test/integration.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@effect/platform-bun": "^4.0.0",
@@ -27,7 +26,17 @@
     "effect": "4.0.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@stryker-mutator/core": "10.0.0",
     "@types/bun": "1.4.3",
-    "typescript": "7.0.2"
+    "jscpd": "5.4.1",
+    "knip": "6.41.0",
+    "typescript": "7.0.2",
+    "typhonjs-escomplex": "0.1.0",
+    "ultracite": "8.0.1"
+  },
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "node": ">=22"
   }
 }

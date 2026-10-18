@@ -6,7 +6,7 @@ import {
   SelfMentionOnly,
   UnknownMention,
 } from "../domain/errors.ts";
-import { type RequestId, systemAgentId } from "../domain/ids.ts";
+import { type RequestId, type RoomId, systemAgentId } from "../domain/ids.ts";
 import { MessagePage, type MessageView } from "../domain/message.ts";
 import { planPost, type WakeMember } from "../domain/wake-policy.ts";
 import type { PostPayload } from "./room-http-api.ts";
@@ -25,6 +25,216 @@ import {
   roomMissing,
   roomQuery,
 } from "./room-sql.ts";
+
+const missingMessage = (
+  requestId: RequestId,
+  roomId: RoomId,
+  seq: number,
+  label: string
+) =>
+  new MessageNotFound({
+    code: "MessageNotFound",
+    details: { roomId, seq },
+    message: `${label} ${seq} was not found in room ${roomId}.`,
+    operation: "message.read",
+    requestId,
+    retryable: false,
+  });
+
+const placeThread = (
+  requestId: RequestId,
+  roomId: RoomId,
+  replyTo: number | null,
+  threadRoot: number | null
+) =>
+  Effect.gen(function* () {
+    let root = threadRoot;
+    if (replyTo !== null) {
+      const target = yield* messageBySeq(requestId, replyTo);
+      if (Option.isNone(target)) {
+        return yield* missingMessage(requestId, roomId, replyTo, "Message");
+      }
+      if (root === null) {
+        root = target.value.threadRoot ?? target.value.seq;
+      }
+    }
+    if (root !== null) {
+      const found = yield* messageBySeq(requestId, root);
+      if (Option.isNone(found)) {
+        return yield* missingMessage(requestId, roomId, root, "Thread");
+      }
+    }
+    return { replyTo, threadRoot: root };
+  });
+
+const rejectPlan = (
+  plan:
+    | { readonly _tag: "RejectUntagged" }
+    | { readonly _tag: "UnknownMention"; readonly token: string }
+    | { readonly _tag: "SelfMentionOnly" },
+  roomId: RoomId,
+  requestId: RequestId
+) => {
+  if (plan._tag === "RejectUntagged") {
+    return new MentionRequired({
+      code: "MentionRequired",
+      details: { roomId },
+      message: `Message in room ${roomId} was not posted. Agents must @mention a member, @all, or @human.`,
+      operation: "post_message",
+      requestId,
+      retryable: false,
+    });
+  }
+  if (plan._tag === "UnknownMention") {
+    return new UnknownMention({
+      code: "UnknownMention",
+      details: { roomId, token: plan.token },
+      message: `@${plan.token} is not a member of room ${roomId}. Use a display name, @all, or @human.`,
+      operation: "post_message",
+      requestId,
+      retryable: false,
+    });
+  }
+  return new SelfMentionOnly({
+    code: "SelfMentionOnly",
+    details: { roomId },
+    message: `Message in room ${roomId} only mentioned you. Mention someone else; posts do not wake their author.`,
+    operation: "post_message",
+    requestId,
+    retryable: false,
+  });
+};
+
+const wakeMembersOf = (members: readonly MemberRow[]): WakeMember[] =>
+  members
+    .filter((item) => item.joined)
+    .map((item) => ({
+      agentId: item.agentId,
+      displayName: item.displayName,
+      kind: item.kind,
+    }));
+
+const fanout = <EnqueueError, EnqueueEnv>(
+  enqueue: (
+    requestId: RequestId,
+    member: MemberRow,
+    messageId: string,
+    messageSeq: number
+  ) => Effect.Effect<void, EnqueueError, EnqueueEnv>,
+  requestId: RequestId,
+  members: readonly MemberRow[],
+  targets: readonly string[],
+  messageId: string,
+  endSeq: number
+) =>
+  Effect.gen(function* () {
+    for (const target of targets) {
+      const targetMember = members.find(
+        (item) => item.agentId === target && item.joined
+      );
+      if (targetMember !== undefined) {
+        yield* enqueue(requestId, targetMember, messageId, endSeq);
+      }
+    }
+  });
+
+const humanPauseNotice =
+  "@human Agent-to-agent wakes are paused after 20 hops with no human message. Post in this room to resume.";
+
+const commitPost = <EnqueueError, EnqueueEnv>(
+  enqueue: (
+    requestId: RequestId,
+    member: MemberRow,
+    messageId: string,
+    messageSeq: number
+  ) => Effect.Effect<void, EnqueueError, EnqueueEnv>,
+  payload: PostPayload,
+  placed: {
+    readonly replyTo: number | null;
+    readonly threadRoot: number | null;
+  }
+) =>
+  Effect.gen(function* () {
+    const flags = yield* loadFlags(payload.requestId);
+    if (Option.isNone(flags)) {
+      return { _tag: "Missing" as const };
+    }
+    const members = yield* loadMembers(payload.requestId);
+    const member = joinedMember(payload.actor, members);
+    if (member === undefined) {
+      return { _tag: "Gone" as const };
+    }
+    const plan = planPost({
+      authorId: member.agentId,
+      authorKind: member.kind,
+      body: payload.body,
+      explicitMentions: payload.mentions,
+      hopCount: flags.value.hopCount,
+      members: wakeMembersOf(members),
+      paused: flags.value.paused,
+    });
+    if (plan._tag !== "Accept") {
+      return { _tag: "Rejected" as const, plan };
+    }
+    yield* roomQuery(
+      payload.requestId,
+      "UPDATE room_flags SET hop_count = ?, paused = ? WHERE id = 1",
+      plan.nextHopCount,
+      plan.paused ? 1 : 0
+    );
+    const message = yield* insertMessage({
+      authorId: member.agentId,
+      authorKind: member.kind,
+      authorName: member.displayName,
+      body: payload.body,
+      mentions: plan.storedMentions,
+      replyTo: placed.replyTo,
+      requestId: payload.requestId,
+      threadRoot: placed.threadRoot,
+    });
+    const notice = plan.notifyHuman
+      ? yield* insertMessage({
+          authorId: systemAgentId,
+          authorKind: "agent",
+          authorName: "room",
+          body: humanPauseNotice,
+          mentions: ["human"],
+          replyTo: null,
+          requestId: payload.requestId,
+          threadRoot: null,
+        })
+      : undefined;
+    const endSeq = notice === undefined ? message.seq : notice.seq;
+    yield* fanout(
+      enqueue,
+      payload.requestId,
+      members,
+      plan.targets,
+      message.id,
+      endSeq
+    );
+    return { _tag: "Stored" as const, message, notice };
+  });
+
+const publishStored = <PublishError, PublishEnv>(
+  publish: (
+    message: MessageView
+  ) => Effect.Effect<void, PublishError, PublishEnv>,
+  message: MessageView,
+  notice: MessageView | undefined
+) =>
+  Effect.gen(function* () {
+    yield* publish(message);
+    if (notice !== undefined) {
+      yield* publish(notice);
+    }
+    const messages = notice === undefined ? [message] : [message, notice];
+    const last = messages.at(-1);
+    return new MessagePage({
+      messages,
+      nextCursor: last === undefined ? null : last.seq,
+    });
+  });
 
 export const postMessage = <EnqueueError, EnqueueEnv, PublishError, PublishEnv>(
   enqueue: (
@@ -47,115 +257,15 @@ export const postMessage = <EnqueueError, EnqueueEnv, PublishError, PublishEnv>(
       );
     }
     const { id } = yield* requireJoined(payload.actor, payload.requestId);
-    let { threadRoot } = payload;
-    const { replyTo } = payload;
-    if (replyTo !== null) {
-      const target = yield* messageBySeq(payload.requestId, replyTo);
-      if (Option.isNone(target)) {
-        return yield* new MessageNotFound({
-          code: "MessageNotFound",
-          details: { roomId: id, seq: replyTo },
-          message: `Message ${replyTo} was not found in room ${id}.`,
-          operation: "message.read",
-          requestId: payload.requestId,
-          retryable: false,
-        });
-      }
-      if (threadRoot === null) {
-        threadRoot = target.value.threadRoot ?? target.value.seq;
-      }
-    }
-    if (threadRoot !== null) {
-      const root = yield* messageBySeq(payload.requestId, threadRoot);
-      if (Option.isNone(root)) {
-        return yield* new MessageNotFound({
-          code: "MessageNotFound",
-          details: { roomId: id, seq: threadRoot },
-          message: `Thread ${threadRoot} was not found in room ${id}.`,
-          operation: "message.read",
-          requestId: payload.requestId,
-          retryable: false,
-        });
-      }
-    }
+    const placed = yield* placeThread(
+      payload.requestId,
+      id,
+      payload.replyTo,
+      payload.threadRoot
+    );
     const current = yield* DurableObjectState;
     const stored = yield* current.storage
-      .transaction(
-        Effect.gen(function* () {
-          const flags = yield* loadFlags(payload.requestId);
-          if (Option.isNone(flags)) {
-            return { _tag: "Missing" as const };
-          }
-          const members = yield* loadMembers(payload.requestId);
-          const member = joinedMember(payload.actor, members);
-          if (member === undefined) {
-            return { _tag: "Gone" as const };
-          }
-          const wakeMembers: WakeMember[] = members
-            .filter((item) => item.joined)
-            .map((item) => ({
-              agentId: item.agentId,
-              displayName: item.displayName,
-              kind: item.kind,
-            }));
-          const plan = planPost({
-            authorId: member.agentId,
-            authorKind: member.kind,
-            body: payload.body,
-            explicitMentions: payload.mentions,
-            hopCount: flags.value.hopCount,
-            members: wakeMembers,
-            paused: flags.value.paused,
-          });
-          if (plan._tag !== "Accept") {
-            return { _tag: "Rejected" as const, plan };
-          }
-          yield* roomQuery(
-            payload.requestId,
-            "UPDATE room_flags SET hop_count = ?, paused = ? WHERE id = 1",
-            plan.nextHopCount,
-            plan.paused ? 1 : 0
-          );
-          const message = yield* insertMessage({
-            authorId: member.agentId,
-            authorKind: member.kind,
-            authorName: member.displayName,
-            body: payload.body,
-            mentions: plan.storedMentions,
-            replyTo,
-            requestId: payload.requestId,
-            threadRoot,
-          });
-          let notice: MessageView | undefined;
-          if (plan.notifyHuman) {
-            notice = yield* insertMessage({
-              authorId: systemAgentId,
-              authorKind: "agent",
-              authorName: "room",
-              body: "@human Agent-to-agent wakes are paused after 20 hops with no human message. Post in this room to resume.",
-              mentions: ["human"],
-              replyTo: null,
-              requestId: payload.requestId,
-              threadRoot: null,
-            });
-          }
-          const endSeq = notice === undefined ? message.seq : notice.seq;
-          for (const target of plan.targets) {
-            const targetMember = members.find(
-              (item) => item.agentId === target && item.joined
-            );
-            if (targetMember !== undefined) {
-              yield* enqueue(
-                payload.requestId,
-                targetMember,
-                message.id,
-                endSeq
-              );
-            }
-          }
-          return { _tag: "Stored" as const, message, notice };
-        })
-      )
+      .transaction(commitPost(enqueue, payload, placed))
       .pipe(
         Effect.catchTag("DurableObjectStorageError", () =>
           Effect.fail(persist(payload.requestId, "post_message"))
@@ -168,47 +278,7 @@ export const postMessage = <EnqueueError, EnqueueEnv, PublishError, PublishEnv>(
       return yield* notMember(id, payload.requestId);
     }
     if (stored._tag === "Rejected") {
-      const { plan } = stored;
-      if (plan._tag === "RejectUntagged") {
-        return yield* new MentionRequired({
-          code: "MentionRequired",
-          details: { roomId: id },
-          message: `Message in room ${id} was not posted. Agents must @mention a member, @all, or @human.`,
-          operation: "post_message",
-          requestId: payload.requestId,
-          retryable: false,
-        });
-      }
-      if (plan._tag === "UnknownMention") {
-        return yield* new UnknownMention({
-          code: "UnknownMention",
-          details: { roomId: id, token: plan.token },
-          message: `@${plan.token} is not a member of room ${id}. Use a display name, @all, or @human.`,
-          operation: "post_message",
-          requestId: payload.requestId,
-          retryable: false,
-        });
-      }
-      return yield* new SelfMentionOnly({
-        code: "SelfMentionOnly",
-        details: { roomId: id },
-        message: `Message in room ${id} only mentioned you. Mention someone else; posts do not wake their author.`,
-        operation: "post_message",
-        requestId: payload.requestId,
-        retryable: false,
-      });
+      return yield* rejectPlan(stored.plan, id, payload.requestId);
     }
-    yield* publish(stored.message);
-    if (stored.notice !== undefined) {
-      yield* publish(stored.notice);
-    }
-    const messages =
-      stored.notice === undefined
-        ? [stored.message]
-        : [stored.message, stored.notice];
-    const last = messages.at(-1);
-    return new MessagePage({
-      messages,
-      nextCursor: last === undefined ? null : last.seq,
-    });
+    return yield* publishStored(publish, stored.message, stored.notice);
   });

@@ -1,78 +1,64 @@
-import { Effect } from "effect"
-import { HttpServerResponse } from "effect/http"
-import type { ChatError } from "../app/chat.ts"
-import { publicErrorBody } from "../domain/errors.ts"
+import { Effect } from "effect";
+import { HttpServerResponse } from "effect/http";
+import type { ChatError } from "../app/chat.ts";
+import { publicErrorBody } from "../domain/errors.ts";
 
-export const json = (status: number, body: unknown) =>
-  Effect.catchTag(HttpServerResponse.json(body, { status }), "HttpBodyError", () =>
-    Effect.die("The response could not be encoded."),
-  )
+export const json = <Body>(status: number, body: Body) =>
+  Effect.catchTag(
+    HttpServerResponse.json(body, { status }),
+    "HttpBodyError",
+    () => Effect.die("The response could not be encoded.")
+  );
 
-const statusFor = (error: ChatError): number => {
-  switch (error._tag) {
-    case "MentionRequired":
-    case "UnknownMention":
-    case "SelfMentionOnly":
-    case "LeadRequired":
-    case "InvalidArgument":
-      return 400
-    case "Unauthorized":
-      return 401
-    case "NotMember":
-    case "NotInvited":
-    case "NotAuthor":
-    case "Forbidden":
-      return 403
-    case "RoomNotFound":
-    case "MessageNotFound":
-    case "AgentNotFound":
-      return 404
-    case "RoomNameTaken":
-      return 409
-    case "PersistenceFailed":
-    case "Unavailable":
-      return 503
-  }
-}
+const statusByTag = {
+  AgentNotFound: 404,
+  Forbidden: 403,
+  InvalidArgument: 400,
+  LeadRequired: 400,
+  MentionRequired: 400,
+  MessageNotFound: 404,
+  NotAuthor: 403,
+  NotInvited: 403,
+  NotMember: 403,
+  PersistenceFailed: 503,
+  RoomNameTaken: 409,
+  RoomNotFound: 404,
+  SelfMentionOnly: 400,
+  Unauthorized: 401,
+  Unavailable: 503,
+  UnknownMention: 400,
+} satisfies Record<ChatError["_tag"], number>;
 
-export const errorResponse = (error: ChatError) => json(statusFor(error), publicErrorBody(error))
+const statusFor = (error: ChatError): number => statusByTag[error._tag];
+
+const errorResponse = (error: ChatError) =>
+  json(statusFor(error), publicErrorBody(error));
+
+const errorCases = {
+  AgentNotFound: errorResponse,
+  Forbidden: errorResponse,
+  InvalidArgument: errorResponse,
+  LeadRequired: errorResponse,
+  MentionRequired: errorResponse,
+  MessageNotFound: errorResponse,
+  NotAuthor: errorResponse,
+  NotInvited: errorResponse,
+  NotMember: errorResponse,
+  PersistenceFailed: errorResponse,
+  RoomNameTaken: errorResponse,
+  RoomNotFound: errorResponse,
+  SelfMentionOnly: errorResponse,
+  Unauthorized: errorResponse,
+  Unavailable: errorResponse,
+  UnknownMention: errorResponse,
+} satisfies Record<ChatError["_tag"], typeof errorResponse>;
 
 export const finish = <A, R>(effect: Effect.Effect<A, ChatError, R>) =>
-  Effect.catchTags(Effect.flatMap(effect, (value) => json(200, value)), {
-    MentionRequired: errorResponse,
-    UnknownMention: errorResponse,
-    SelfMentionOnly: errorResponse,
-    NotMember: errorResponse,
-    NotInvited: errorResponse,
-    NotAuthor: errorResponse,
-    Forbidden: errorResponse,
-    Unauthorized: errorResponse,
-    RoomNotFound: errorResponse,
-    MessageNotFound: errorResponse,
-    AgentNotFound: errorResponse,
-    RoomNameTaken: errorResponse,
-    LeadRequired: errorResponse,
-    InvalidArgument: errorResponse,
-    PersistenceFailed: errorResponse,
-    Unavailable: errorResponse,
-  })
+  Effect.catchTags(
+    Effect.flatMap(effect, (value) => json(200, value)),
+    errorCases
+  );
 
-export const finishResponse = <R>(effect: Effect.Effect<HttpServerResponse.HttpServerResponse, ChatError, R>) =>
-  Effect.catchTags(effect, {
-    MentionRequired: errorResponse,
-    UnknownMention: errorResponse,
-    SelfMentionOnly: errorResponse,
-    NotMember: errorResponse,
-    NotInvited: errorResponse,
-    NotAuthor: errorResponse,
-    Forbidden: errorResponse,
-    Unauthorized: errorResponse,
-    RoomNotFound: errorResponse,
-    MessageNotFound: errorResponse,
-    AgentNotFound: errorResponse,
-    RoomNameTaken: errorResponse,
-    LeadRequired: errorResponse,
-    InvalidArgument: errorResponse,
-    PersistenceFailed: errorResponse,
-    Unavailable: errorResponse,
-  })
+export const finishResponse = <R>(
+  effect: Effect.Effect<HttpServerResponse.HttpServerResponse, ChatError, R>
+) => Effect.catchTags(effect, errorCases);

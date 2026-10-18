@@ -1,6 +1,7 @@
 import { DurableObjectState } from "alchemy/Cloudflare";
 import { Effect, Option } from "effect";
 import { MessageNotFound, NotAuthor } from "../domain/errors.ts";
+import type { RequestId, RoomId } from "../domain/ids.ts";
 import type { MessageView } from "../domain/message.ts";
 import { planPost } from "../domain/wake-policy.ts";
 import {
@@ -14,6 +15,24 @@ import { requireJoined } from "./room-members.ts";
 import { messageBySeq } from "./room-messages.ts";
 import { invalid, persist, roomQuery } from "./room-sql.ts";
 
+const requireMessage = (requestId: RequestId, roomId: RoomId, seq: number) =>
+  Effect.gen(function* () {
+    const existing = yield* messageBySeq(requestId, seq);
+    if (Option.isNone(existing)) {
+      return yield* new MessageNotFound({
+        code: "MessageNotFound",
+        details: { roomId, seq },
+        message: `Message ${seq} was not found in room ${roomId}.`,
+        operation: "message.read",
+        requestId,
+        retryable: false,
+      });
+    }
+    return existing.value;
+  });
+
+const emojiPattern = /^[\p{L}\p{N}\p{Extended_Pictographic}_+\-:]{1,16}$/u;
+
 export const react = <PublishError, PublishEnv>(
   publish: (
     message: MessageView
@@ -24,9 +43,7 @@ export const react = <PublishError, PublishEnv>(
       payload.actor,
       payload.requestId
     );
-    if (
-      !/^[\p{L}\p{N}\p{Extended_Pictographic}_+\-:]{1,16}$/u.test(payload.emoji)
-    ) {
+    if (!emojiPattern.test(payload.emoji)) {
       return yield* invalid(
         payload.requestId,
         "react",
@@ -34,17 +51,7 @@ export const react = <PublishError, PublishEnv>(
         "must be 1 to 16 characters without spaces"
       );
     }
-    const existing = yield* messageBySeq(payload.requestId, payload.seq);
-    if (Option.isNone(existing)) {
-      return yield* new MessageNotFound({
-        code: "MessageNotFound",
-        details: { roomId: id, seq: payload.seq },
-        message: `Message ${payload.seq} was not found in room ${id}.`,
-        operation: "message.read",
-        requestId: payload.requestId,
-        retryable: false,
-      });
-    }
+    yield* requireMessage(payload.requestId, id, payload.seq);
     const state = yield* DurableObjectState;
     yield* state.storage
       .transaction(
@@ -106,18 +113,8 @@ export const edit = <PublishError, PublishEnv>(
       payload.actor,
       payload.requestId
     );
-    const existing = yield* messageBySeq(payload.requestId, payload.seq);
-    if (Option.isNone(existing)) {
-      return yield* new MessageNotFound({
-        code: "MessageNotFound",
-        details: { roomId: id, seq: payload.seq },
-        message: `Message ${payload.seq} was not found in room ${id}.`,
-        operation: "message.read",
-        requestId: payload.requestId,
-        retryable: false,
-      });
-    }
-    if (existing.value.authorId !== member.agentId) {
+    const existing = yield* requireMessage(payload.requestId, id, payload.seq);
+    if (existing.authorId !== member.agentId) {
       return yield* new NotAuthor({
         code: "NotAuthor",
         details: { roomId: id, seq: payload.seq },
@@ -176,18 +173,8 @@ export const redact = <PublishError, PublishEnv>(
       payload.actor,
       payload.requestId
     );
-    const existing = yield* messageBySeq(payload.requestId, payload.seq);
-    if (Option.isNone(existing)) {
-      return yield* new MessageNotFound({
-        code: "MessageNotFound",
-        details: { roomId: id, seq: payload.seq },
-        message: `Message ${payload.seq} was not found in room ${id}.`,
-        operation: "message.read",
-        requestId: payload.requestId,
-        retryable: false,
-      });
-    }
-    if (existing.value.authorId !== member.agentId && !payload.actor.admin) {
+    const existing = yield* requireMessage(payload.requestId, id, payload.seq);
+    if (existing.authorId !== member.agentId && !payload.actor.admin) {
       return yield* new NotAuthor({
         code: "NotAuthor",
         details: { roomId: id, seq: payload.seq },

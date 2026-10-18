@@ -4,13 +4,33 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "strictBuiltinIteratorReturn": true,
     "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "useUnknownInCatchVariables": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "skipLibCheck": true,
     "noEmit": true,
-    "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "types": ["bun"],
     "lib": ["ES2022"]
   },
-  "include": ["alchemy.run.ts", "src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
+  "include": [
+    "alchemy.run.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts"
+  ]
 }

@@ -1,7 +1,7 @@
 export type SqlCell = string | number | null | undefined;
 
 const cell = (
-  row: { readonly [key: string]: string | number | null },
+  row: { readonly [column: string]: string | number | null },
   key: string
 ): SqlCell => row[key];
 

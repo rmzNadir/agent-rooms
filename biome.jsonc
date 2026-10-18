@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/biome/core"],
+  "files": {
+    "includes": [
+      "!!**/node_modules",
+      "!!**/.git",
+      "!!**/.alchemy",
+      "!!**/coverage",
+      "!!**/.stryker-tmp",
+      "!!**/bun.lock"
+    ]
+  },
+  "javascript": {
+    "globals": ["Bun"]
+  },
+  "linter": {
+    "rules": {
+      "preset": "all",
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": {
+            "maxAllowedComplexity": 21
+          }
+        }
+      },
+      "correctness": {
+        "useQwikValidLexicalScope": "off"
+      },
+      "style": {
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": {
+            "maxLines": 499,
+            "skipBlankLines": false
+          }
+        }
+      }
+    }
+  }
+}

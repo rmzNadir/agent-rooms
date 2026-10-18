@@ -13,20 +13,14 @@ import {
   type MembersPayload,
 } from "./room-http-api.ts";
 import {
-  canonicalRoomId,
   joinedMember,
   loadFlags,
   loadMembers,
+  loadRoom,
   requireJoined,
   summary,
 } from "./room-members.ts";
-import {
-  notMember,
-  persist,
-  roomMissing,
-  roomQuery,
-  SocketSession,
-} from "./room-sql.ts";
+import { notMember, persist, roomQuery, SocketSession } from "./room-sql.ts";
 
 export const initRoom = Effect.fn("RoomServer.init")(function* (
   payload: InitRoomPayload
@@ -73,12 +67,7 @@ export const initRoom = Effect.fn("RoomServer.init")(function* (
 export const invite = Effect.fn("RoomServer.invite")(function* (
   payload: InvitePayload
 ) {
-  const id = yield* canonicalRoomId();
-  const flags = yield* loadFlags(payload.requestId);
-  if (Option.isNone(flags)) {
-    return yield* roomMissing(id, payload.requestId);
-  }
-  const members = yield* loadMembers(payload.requestId);
+  const { id, members } = yield* loadRoom(payload.requestId);
   const actorJoined = joinedMember(payload.actor, members);
   if (actorJoined === undefined && !payload.actor.admin) {
     return yield* notMember(id, payload.requestId);
@@ -116,12 +105,7 @@ export const invite = Effect.fn("RoomServer.invite")(function* (
 export const join = Effect.fn("RoomServer.join")(function* (
   payload: JoinPayload
 ) {
-  const id = yield* canonicalRoomId();
-  const flags = yield* loadFlags(payload.requestId);
-  if (Option.isNone(flags)) {
-    return yield* roomMissing(id, payload.requestId);
-  }
-  const members = yield* loadMembers(payload.requestId);
+  const { id, members } = yield* loadRoom(payload.requestId);
   const member = members.find((item) => item.agentId === payload.actor.agentId);
   if (member === undefined) {
     return yield* new NotInvited({
@@ -231,7 +215,7 @@ export const leave = (sessions: Map<string, WebSocket>) =>
       agentId: string;
       socket: WebSocket;
     }> = [];
-    for (const [id, socket] of sessions) {
+    for (const [socketId, socket] of sessions) {
       const session = yield* socket
         .getAttachment(SocketSession)
         .pipe(
@@ -240,7 +224,7 @@ export const leave = (sessions: Map<string, WebSocket>) =>
           )
         );
       if (session !== undefined) {
-        open.push({ agentId: session.agentId, id, socket });
+        open.push({ agentId: session.agentId, id: socketId, socket });
       }
     }
     const closing = new Set(socketIdsForAgent(open, member.agentId));

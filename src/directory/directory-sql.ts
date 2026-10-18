@@ -7,7 +7,7 @@ import {
   PersistenceFailed,
 } from "../domain/errors.ts";
 import { AgentId, type RequestId, RoomId } from "../domain/ids.ts";
-import { sqlRow } from "../domain/sql-row.ts";
+import { execRows } from "../domain/sql-exec.ts";
 import { webhookUrlProblem } from "../domain/webhook-url.ts";
 
 export const decodeAgentId = Schema.decodeUnknownEffect(AgentId);
@@ -66,25 +66,7 @@ export const directoryQuery = (
   requestId: RequestId,
   sql: string,
   ...bindings: Array<string | number | null>
-) =>
-  Effect.gen(function* () {
-    const current = yield* DurableObjectState;
-    const cursor = yield* current.storage.sql
-      .exec<Record<string, string | number | null>>(sql, ...bindings)
-      .pipe(
-        Effect.catchDefect(() =>
-          Effect.fail(persist(requestId, "directory.sql"))
-        )
-      );
-    const rows = yield* cursor
-      .toArray()
-      .pipe(
-        Effect.catchDefect(() =>
-          Effect.fail(persist(requestId, "directory.sql"))
-        )
-      );
-    return rows.map(sqlRow);
-  });
+) => execRows(sql, bindings, persist(requestId, "directory.sql"));
 export const migrateDirectory = Effect.gen(function* () {
   const statements = [
     `CREATE TABLE IF NOT EXISTS agents (

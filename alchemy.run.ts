@@ -1,16 +1,17 @@
-import * as Alchemy from "alchemy"
-import { localState } from "alchemy"
-import * as Cloudflare from "alchemy/Cloudflare"
-import { Effect } from "effect"
-import Api from "./src/api-worker.ts"
+import { localState, Stack } from "alchemy";
+import { state as cloudflareState, providers } from "alchemy/Cloudflare";
+import { Effect } from "effect";
+import Api from "./src/api-worker.ts";
+import { readEnv } from "./src/boundary/external.ts";
 
-const state = process.env.AGENT_ROOMS_LOCAL_STATE === "1" ? localState() : Cloudflare.state()
+const state =
+  readEnv("AGENT_ROOMS_LOCAL_STATE") === "1" ? localState() : cloudflareState();
 
-export default Alchemy.Stack(
+export default Stack(
   "AgentRooms",
-  { providers: Cloudflare.providers(), state },
+  { providers: providers(), state },
   Effect.gen(function* () {
-    const api = yield* Api
-    return { url: api.url }
-  }),
-)
+    const api = yield* Api;
+    return { url: api.url };
+  })
+);

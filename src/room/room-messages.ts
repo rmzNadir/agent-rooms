@@ -13,7 +13,7 @@ import {
   roomQuery,
 } from "./room-sql.ts";
 
-export const reactionsFor = (requestId: RequestId, seq: number) =>
+const reactionsFor = (requestId: RequestId, seq: number) =>
   Effect.gen(function* () {
     const found = yield* roomQuery(
       requestId,

@@ -84,7 +84,7 @@ const findByHash = (requestId: RequestId, tokenHash: string) =>
     return yield* recordFrom(row, requestId);
   });
 
-export const findById = (requestId: RequestId, agentId: AgentId) =>
+const findById = (requestId: RequestId, agentId: AgentId) =>
   Effect.gen(function* () {
     const found = yield* directoryQuery(
       requestId,
@@ -96,6 +96,26 @@ export const findById = (requestId: RequestId, agentId: AgentId) =>
       return;
     }
     return yield* recordFrom(row, requestId);
+  });
+
+export const requireAgent = (
+  requestId: RequestId,
+  agentId: AgentId,
+  message: string
+) =>
+  Effect.gen(function* () {
+    const agent = yield* findById(requestId, agentId);
+    if (agent === undefined) {
+      return yield* new AgentNotFound({
+        code: "AgentNotFound",
+        details: { agentId },
+        message,
+        operation: "agent.read",
+        requestId,
+        retryable: false,
+      });
+    }
+    return agent;
   });
 
 const roomIdsFor = (requestId: RequestId, agentId: AgentId) =>
@@ -289,17 +309,11 @@ export const rotateToken = Effect.fn("DirectoryServer.rotateToken")(function* (
   if (!payload.actor.admin && payload.actor.agentId !== payload.agentId) {
     return yield* forbidden(payload.requestId, "rotate_token");
   }
-  const agent = yield* findById(payload.requestId, payload.agentId);
-  if (agent === undefined) {
-    return yield* new AgentNotFound({
-      code: "AgentNotFound",
-      details: { agentId: payload.agentId },
-      message: `Agent ${payload.agentId} was not found. Check the id and retry.`,
-      operation: "agent.read",
-      requestId: payload.requestId,
-      retryable: false,
-    });
-  }
+  const agent = yield* requireAgent(
+    payload.requestId,
+    payload.agentId,
+    `Agent ${payload.agentId} was not found. Check the id and retry.`
+  );
   const token = yield* makeSecret();
   const tokenHash = yield* hashToken(token);
   yield* directoryQuery(
@@ -349,16 +363,9 @@ export const setWebhook = Effect.fn("DirectoryServer.setWebhook")(function* (
 export const getAgent = Effect.fn("DirectoryServer.getAgent")(function* (
   payload: GetAgentPayload
 ) {
-  const agent = yield* findById(payload.requestId, payload.agentId);
-  if (agent === undefined) {
-    return yield* new AgentNotFound({
-      code: "AgentNotFound",
-      details: { agentId: payload.agentId },
-      message: `Agent ${payload.agentId} was not found. Check the id and retry.`,
-      operation: "agent.read",
-      requestId: payload.requestId,
-      retryable: false,
-    });
-  }
-  return agent;
+  return yield* requireAgent(
+    payload.requestId,
+    payload.agentId,
+    `Agent ${payload.agentId} was not found. Check the id and retry.`
+  );
 });

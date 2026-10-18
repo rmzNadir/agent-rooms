@@ -1,12 +1,8 @@
 import { DurableObjectState } from "alchemy/Cloudflare";
 import { Effect } from "effect";
-import {
-  AgentNotFound,
-  InvalidArgument,
-  RoomNameTaken,
-} from "../domain/errors.ts";
+import { InvalidArgument, RoomNameTaken } from "../domain/errors.ts";
 import { RoomSummary } from "../domain/message.ts";
-import { findById } from "./directory-agents.ts";
+import { requireAgent } from "./directory-agents.ts";
 import {
   type DeleteMembershipPayload,
   type DeleteRoomPayload,
@@ -163,17 +159,11 @@ export const listRooms = Effect.fn("DirectoryServer.listRooms")(function* (
 
 export const putMembership = Effect.fn("DirectoryServer.putMembership")(
   function* (payload: PutMembershipPayload) {
-    const agent = yield* findById(payload.requestId, payload.agentId);
-    if (agent === undefined) {
-      return yield* new AgentNotFound({
-        code: "AgentNotFound",
-        details: { agentId: payload.agentId },
-        message: `Agent ${payload.agentId} was not found. Create the agent before inviting them.`,
-        operation: "agent.read",
-        requestId: payload.requestId,
-        retryable: false,
-      });
-    }
+    yield* requireAgent(
+      payload.requestId,
+      payload.agentId,
+      `Agent ${payload.agentId} was not found. Create the agent before inviting them.`
+    );
     yield* directoryQuery(
       payload.requestId,
       "INSERT INTO memberships (room_id, agent_id) VALUES (?, ?) ON CONFLICT DO NOTHING",

@@ -1,45 +1,100 @@
-import { expect, test } from "bun:test"
-import { Schema } from "effect"
-import { AgentId } from "../src/domain/ids.ts"
-import { MessageView } from "../src/domain/message.ts"
-import { renderTranscript } from "../src/domain/transcript.ts"
+import { expect, test } from "bun:test";
+import { Schema } from "effect";
+import { AgentId } from "../src/domain/ids.ts";
+import { MessageView } from "../src/domain/message.ts";
+import { renderTranscript } from "../src/domain/transcript.ts";
 
 const message = new MessageView({
-  seq: 3,
-  id: "msg_1",
   authorId: Schema.decodeUnknownSync(AgentId)("agent_aaaaaaaaaaaaaaaaaaaaaaaa"),
-  authorName: "ada",
   authorKind: "agent",
+  authorName: "ada",
   body: "hello @bob",
-  mentions: ["bob"],
-  threadRoot: null,
-  replyTo: null,
   createdAt: Date.UTC(2026, 0, 2, 3, 4, 5),
   editedAt: null,
-  redacted: false,
+  id: "msg_1",
+  mentions: ["bob"],
   reactions: [],
-})
+  redacted: false,
+  replyTo: null,
+  seq: 3,
+  threadRoot: null,
+});
 
-test("markdown transcript names the room, sequence, and author", () => {
-  const text = renderTranscript({
-    roomName: "launch",
-    format: "markdown",
-    messages: [message],
-  })
-  expect(text.startsWith("# launch")).toBe(true)
-  expect(text.includes("## #3 @ada")).toBe(true)
-  expect(text.includes("hello @bob")).toBe(true)
-})
+const reply = new MessageView({
+  authorId: message.authorId,
+  authorKind: "agent",
+  authorName: "ada",
+  body: "reply",
+  createdAt: message.createdAt,
+  editedAt: null,
+  id: "msg_2",
+  mentions: [],
+  reactions: [],
+  redacted: false,
+  replyTo: 3,
+  seq: 4,
+  threadRoot: 3,
+});
+
+const at = "2026-01-02T03:04:05.000Z";
+
+test("markdown transcript names the room, sequence, author, and thread", () => {
+  expect(
+    renderTranscript({
+      format: "markdown",
+      messages: [message, reply],
+      roomName: "launch",
+    })
+  ).toBe(
+    [
+      "# launch",
+      "",
+      `## #3 @ada (${at})`,
+      "",
+      "hello @bob",
+      "",
+      `## #4 @ada (${at}) · thread 3`,
+      "",
+      "reply",
+      "",
+    ].join("\n")
+  );
+});
 
 test("json transcript keeps the sequence and mentions", () => {
-  const text = renderTranscript({
-    roomName: "launch",
-    format: "json",
-    messages: [message],
-  })
-  const parsed: unknown = JSON.parse(text)
-  expect(parsed).toMatchObject({
-    roomName: "launch",
-    messages: [{ seq: 3, author: "ada", mentions: ["bob"] }],
-  })
-})
+  expect(
+    renderTranscript({
+      format: "json",
+      messages: [message, reply],
+      roomName: "launch",
+    })
+  ).toBe(
+    JSON.stringify({
+      messages: [
+        {
+          at,
+          author: "ada",
+          body: "hello @bob",
+          kind: "agent",
+          mentions: ["bob"],
+          redacted: false,
+          replyTo: null,
+          seq: 3,
+          threadRoot: null,
+        },
+        {
+          at,
+          author: "ada",
+          body: "reply",
+          kind: "agent",
+          mentions: [],
+          redacted: false,
+          replyTo: 3,
+          seq: 4,
+          threadRoot: 3,
+        },
+      ],
+      roomName: "launch",
+    })
+  );
+});

@@ -154,6 +154,27 @@ export const search = Effect.fn("RoomServer.search")(function* (
   });
 });
 
+type PageRead = ReturnType<typeof readPage>;
+
+const pollUntil = (
+  requestId: WaitPayload["requestId"],
+  since: number,
+  limit: number,
+  deadline: number
+): Effect.Effect<
+  Effect.Success<PageRead>,
+  Effect.Error<PageRead>,
+  Effect.Services<PageRead>
+> =>
+  Effect.gen(function* () {
+    const page = yield* readPage(requestId, since, limit, null);
+    if (page.messages.length > 0 || Date.now() >= deadline) {
+      return page;
+    }
+    yield* Effect.sleep("400 millis");
+    return yield* pollUntil(requestId, since, limit, deadline);
+  });
+
 export const wait = Effect.fn("RoomServer.wait")(function* (
   payload: WaitPayload
 ) {
@@ -172,14 +193,12 @@ export const wait = Effect.fn("RoomServer.wait")(function* (
     payload.limit
   );
   const timeout = Math.min(Math.max(payload.timeoutMs, 0), MAX_WAIT_MS);
-  const deadline = Date.now() + timeout;
-  while (true) {
-    const page = yield* readPage(payload.requestId, payload.since, limit, null);
-    if (page.messages.length > 0 || Date.now() >= deadline) {
-      return page;
-    }
-    yield* Effect.sleep("400 millis");
-  }
+  return yield* pollUntil(
+    payload.requestId,
+    payload.since,
+    limit,
+    Date.now() + timeout
+  );
 });
 
 export const unread = Effect.fn("RoomServer.unread")(function* (

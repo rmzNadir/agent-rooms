@@ -22,7 +22,7 @@ export const restoreRoomSockets = (sessions: Map<string, WebSocket>) =>
     }
   });
 
-export const broadcastRoom = (sessions: Map<string, WebSocket>, text: string) =>
+const broadcastRoom = (sessions: Map<string, WebSocket>, text: string) =>
   Effect.gen(function* () {
     for (const socket of sessions.values()) {
       const exit = yield* Effect.exit(socket.send(text));

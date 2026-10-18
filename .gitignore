@@ -6,5 +6,7 @@ dist
 .env.*
 !.env.example
 coverage
+.stryker-tmp
+reports
 .wrangler
 agent-rooms.listener.json

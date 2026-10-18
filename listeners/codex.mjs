@@ -1,13 +1,21 @@
-import { codexArgs, findSessionId, serve, sessionFor, spawnHarness, writeSession } from "./common.mjs"
+import {
+  codexArgs,
+  rememberSession,
+  sessionFor,
+  spawnHarness,
+} from "./listener-io.mjs";
+import { serve } from "./listener-wake.mjs";
 
 serve(async (wake, config, prompt) => {
   const result = await spawnHarness({
+    args: codexArgs(
+      config.codexExtraArgs,
+      sessionFor(wake.roomId, wake.agentId),
+      prompt
+    ),
     bin: config.codexBin,
-    args: codexArgs(config.codexExtraArgs, sessionFor(wake.roomId, wake.agentId), prompt),
     cwd: config.workdir,
     env: { AGENT_ROOMS_TOKEN: config.bearerToken },
-  })
-  const sessionId = findSessionId(result.body.stdout ?? "")
-  if (sessionId !== undefined) writeSession(wake.roomId, wake.agentId, sessionId)
-  return result
-})
+  });
+  return rememberSession(wake, result);
+});

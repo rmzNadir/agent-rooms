@@ -1,10 +1,10 @@
-import { Schema } from "effect"
-import { AgentId, RequestId, RoomId } from "./ids.ts"
+import { Schema } from "effect";
+import { AgentId, RequestId, RoomId } from "./ids.ts";
 
 const requestFields = {
   message: Schema.String,
   requestId: RequestId,
-}
+};
 
 export class MentionRequired extends Schema.TaggedError<MentionRequired>()(
   "MentionRequired",
@@ -15,7 +15,7 @@ export class MentionRequired extends Schema.TaggedError<MentionRequired>()(
     details: Schema.Struct({ roomId: RoomId }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 400 },
+  { httpApiStatus: 400 }
 ) {}
 
 export class UnknownMention extends Schema.TaggedError<UnknownMention>()(
@@ -27,7 +27,7 @@ export class UnknownMention extends Schema.TaggedError<UnknownMention>()(
     details: Schema.Struct({ roomId: RoomId, token: Schema.String }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 400 },
+  { httpApiStatus: 400 }
 ) {}
 
 export class SelfMentionOnly extends Schema.TaggedError<SelfMentionOnly>()(
@@ -39,7 +39,7 @@ export class SelfMentionOnly extends Schema.TaggedError<SelfMentionOnly>()(
     details: Schema.Struct({ roomId: RoomId }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 400 },
+  { httpApiStatus: 400 }
 ) {}
 
 export class NotMember extends Schema.TaggedError<NotMember>()(
@@ -51,7 +51,7 @@ export class NotMember extends Schema.TaggedError<NotMember>()(
     details: Schema.Struct({ roomId: RoomId }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 403 },
+  { httpApiStatus: 403 }
 ) {}
 
 export class NotInvited extends Schema.TaggedError<NotInvited>()(
@@ -63,7 +63,7 @@ export class NotInvited extends Schema.TaggedError<NotInvited>()(
     details: Schema.Struct({ roomId: RoomId }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 403 },
+  { httpApiStatus: 403 }
 ) {}
 
 export class NotAuthor extends Schema.TaggedError<NotAuthor>()(
@@ -75,7 +75,7 @@ export class NotAuthor extends Schema.TaggedError<NotAuthor>()(
     details: Schema.Struct({ roomId: RoomId, seq: Schema.Number }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 403 },
+  { httpApiStatus: 403 }
 ) {}
 
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
@@ -87,7 +87,7 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
     details: Schema.Struct({}),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 403 },
+  { httpApiStatus: 403 }
 ) {}
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
@@ -99,7 +99,7 @@ export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
     details: Schema.Struct({}),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 401 },
+  { httpApiStatus: 401 }
 ) {}
 
 export class RoomNotFound extends Schema.TaggedError<RoomNotFound>()(
@@ -111,7 +111,7 @@ export class RoomNotFound extends Schema.TaggedError<RoomNotFound>()(
     details: Schema.Struct({ roomId: RoomId }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 404 },
+  { httpApiStatus: 404 }
 ) {}
 
 export class MessageNotFound extends Schema.TaggedError<MessageNotFound>()(
@@ -123,7 +123,7 @@ export class MessageNotFound extends Schema.TaggedError<MessageNotFound>()(
     details: Schema.Struct({ roomId: RoomId, seq: Schema.Number }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 404 },
+  { httpApiStatus: 404 }
 ) {}
 
 export class AgentNotFound extends Schema.TaggedError<AgentNotFound>()(
@@ -135,7 +135,7 @@ export class AgentNotFound extends Schema.TaggedError<AgentNotFound>()(
     details: Schema.Struct({ agentId: AgentId }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 404 },
+  { httpApiStatus: 404 }
 ) {}
 
 export class RoomNameTaken extends Schema.TaggedError<RoomNameTaken>()(
@@ -147,7 +147,7 @@ export class RoomNameTaken extends Schema.TaggedError<RoomNameTaken>()(
     details: Schema.Struct({ name: Schema.String }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 409 },
+  { httpApiStatus: 409 }
 ) {}
 
 export class LeadRequired extends Schema.TaggedError<LeadRequired>()(
@@ -159,7 +159,7 @@ export class LeadRequired extends Schema.TaggedError<LeadRequired>()(
     details: Schema.Struct({}),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 400 },
+  { httpApiStatus: 400 }
 ) {}
 
 export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
@@ -169,12 +169,12 @@ export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
     operation: Schema.String,
     ...requestFields,
     details: Schema.Struct({
-      field: Schema.String,
       constraint: Schema.String,
+      field: Schema.String,
     }),
     retryable: Schema.Literal(false),
   },
-  { httpApiStatus: 400 },
+  { httpApiStatus: 400 }
 ) {}
 
 export class PersistenceFailed extends Schema.TaggedError<PersistenceFailed>()(
@@ -186,7 +186,7 @@ export class PersistenceFailed extends Schema.TaggedError<PersistenceFailed>()(
     details: Schema.Struct({}),
     retryable: Schema.Literal(true),
   },
-  { httpApiStatus: 503 },
+  { httpApiStatus: 503 }
 ) {}
 
 export class Unavailable extends Schema.TaggedError<Unavailable>()(
@@ -198,29 +198,19 @@ export class Unavailable extends Schema.TaggedError<Unavailable>()(
     details: Schema.Struct({}),
     retryable: Schema.Literal(true),
   },
-  { httpApiStatus: 503 },
+  { httpApiStatus: 503 }
 ) {}
 
-export const PublicError = Schema.Struct({
-  code: Schema.String,
-  message: Schema.String,
-  details: Schema.Unknown,
-  requestId: Schema.String,
-  retryable: Schema.Boolean,
-})
-
-const asDetails = (details: object): unknown => details
-
 export const publicErrorBody = (error: {
-  readonly code: string
-  readonly message: string
-  readonly requestId: RequestId
-  readonly retryable: boolean
-  readonly details: object
+  readonly code: string;
+  readonly message: string;
+  readonly requestId: RequestId;
+  readonly retryable: boolean;
+  readonly details: object;
 }) => ({
   code: error.code,
+  details: error.details,
   message: error.message,
-  details: asDetails(error.details),
   requestId: error.requestId,
   retryable: error.retryable,
-})
+});

@@ -15,6 +15,8 @@ import {
   schemaRequestId,
 } from "./room-sql.ts";
 
+const roomIdPattern = /^room_[0-9a-f]{24}$/;
+
 export const loadFlags = (requestId: RequestId) =>
   Effect.gen(function* () {
     const found = yield* roomQuery(
@@ -39,10 +41,7 @@ export const loadFlags = (requestId: RequestId) =>
     });
   });
 
-export const requireFlags = (
-  requestId: RequestId,
-  hinted: RoomId | undefined
-) =>
+const requireFlags = (requestId: RequestId, hinted: RoomId | undefined) =>
   Effect.gen(function* () {
     const flags = yield* loadFlags(requestId);
     if (Option.isNone(flags)) {
@@ -96,7 +95,7 @@ export const canonicalRoomId = () =>
       return yield* Effect.fail(persist(schemaRequestId, "room.identity"));
     }
     return yield* Schema.decodeUnknownEffect(
-      Schema.String.check(Schema.isPattern(/^room_[0-9a-f]{24}$/)).pipe(
+      Schema.String.check(Schema.isPattern(roomIdPattern)).pipe(
         Schema.brand("RoomId")
       )
     )(name).pipe(
@@ -111,7 +110,7 @@ const decodeRoom = canonicalRoomId;
 export const joinedMember = (actor: Actor, members: readonly MemberRow[]) =>
   members.find((member) => member.agentId === actor.agentId && member.joined);
 
-export const requireJoined = (actor: Actor, requestId: RequestId) =>
+export const loadRoom = (requestId: RequestId) =>
   Effect.gen(function* () {
     const id = yield* canonicalRoomId();
     const flags = yield* loadFlags(requestId);
@@ -119,11 +118,17 @@ export const requireJoined = (actor: Actor, requestId: RequestId) =>
       return yield* roomMissing(id, requestId);
     }
     const members = yield* loadMembers(requestId);
+    return { flags: flags.value, id, members };
+  });
+
+export const requireJoined = (actor: Actor, requestId: RequestId) =>
+  Effect.gen(function* () {
+    const { flags, id, members } = yield* loadRoom(requestId);
     const member = joinedMember(actor, members);
     if (member === undefined) {
       return yield* notMember(id, requestId);
     }
-    return { flags: flags.value, id, member, members };
+    return { flags, id, member, members };
   });
 
 export const summary = (requestId: RequestId, actorId: AgentId | null) =>

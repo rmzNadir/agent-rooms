@@ -1,6 +1,6 @@
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
-import { Schema } from "effect"
-import { Actor, MemberKind } from "../domain/actor.ts"
+import { Schema } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
+import { Actor, MemberKind } from "../domain/actor.ts";
 import {
   Forbidden,
   InvalidArgument,
@@ -13,8 +13,8 @@ import {
   RoomNotFound,
   SelfMentionOnly,
   UnknownMention,
-} from "../domain/errors.ts"
-import { AgentId, RequestId, RoomId } from "../domain/ids.ts"
+} from "../domain/errors.ts";
+import { AgentId, RequestId, RoomId } from "../domain/ids.ts";
 import {
   MemberView,
   MessagePage,
@@ -22,7 +22,7 @@ import {
   RoomSummary,
   ThreadSummary,
   UnreadView,
-} from "../domain/message.ts"
+} from "../domain/message.ts";
 
 const roomFailure = [
   NotMember,
@@ -30,7 +30,7 @@ const roomFailure = [
   InvalidArgument,
   PersistenceFailed,
   Forbidden,
-] as const
+] as const;
 
 const postFailure = [
   MentionRequired,
@@ -41,143 +41,165 @@ const postFailure = [
   MessageNotFound,
   InvalidArgument,
   PersistenceFailed,
-] as const
+] as const;
 
 export class InitMember extends Schema.Class<InitMember>("InitMember")({
   agentId: AgentId,
   displayName: Schema.String,
   kind: MemberKind,
   role: Schema.Literals(["lead", "member"]),
-  webhookUrl: Schema.NullOr(Schema.String),
   webhookSecret: Schema.NullOr(Schema.String),
+  webhookUrl: Schema.NullOr(Schema.String),
 }) {}
 
-export class InitRoomPayload extends Schema.Class<InitRoomPayload>("InitRoomPayload")({
-  requestId: RequestId,
-  roomId: RoomId,
-  name: Schema.String,
-  topic: Schema.String,
+export class InitRoomPayload extends Schema.Class<InitRoomPayload>(
+  "InitRoomPayload"
+)({
   leadId: AgentId,
   members: Schema.Array(InitMember),
+  name: Schema.String,
+  requestId: RequestId,
+  roomId: RoomId,
+  topic: Schema.String,
 }) {}
 
-export class InvitePayload extends Schema.Class<InvitePayload>("InvitePayload")({
-  requestId: RequestId,
-  actor: Actor,
-  agentId: AgentId,
-  displayName: Schema.String,
-  kind: MemberKind,
-  webhookUrl: Schema.NullOr(Schema.String),
-  webhookSecret: Schema.NullOr(Schema.String),
-}) {}
+export class InvitePayload extends Schema.Class<InvitePayload>("InvitePayload")(
+  {
+    actor: Actor,
+    agentId: AgentId,
+    displayName: Schema.String,
+    kind: MemberKind,
+    requestId: RequestId,
+    webhookSecret: Schema.NullOr(Schema.String),
+    webhookUrl: Schema.NullOr(Schema.String),
+  }
+) {}
 
 export class JoinPayload extends Schema.Class<JoinPayload>("JoinPayload")({
-  requestId: RequestId,
   actor: Actor,
-  webhookUrl: Schema.NullOr(Schema.String),
+  requestId: RequestId,
   webhookSecret: Schema.NullOr(Schema.String),
+  webhookUrl: Schema.NullOr(Schema.String),
 }) {}
 
 export class LeavePayload extends Schema.Class<LeavePayload>("LeavePayload")({
-  requestId: RequestId,
   actor: Actor,
+  requestId: RequestId,
 }) {}
 
-export class MembersPayload extends Schema.Class<MembersPayload>("MembersPayload")({
-  requestId: RequestId,
+export class MembersPayload extends Schema.Class<MembersPayload>(
+  "MembersPayload"
+)({
   actor: Actor,
+  requestId: RequestId,
 }) {}
 
 export class PostPayload extends Schema.Class<PostPayload>("PostPayload")({
-  requestId: RequestId,
   actor: Actor,
   body: Schema.String,
   mentions: Schema.Array(Schema.String),
-  threadRoot: Schema.NullOr(Schema.Number),
   replyTo: Schema.NullOr(Schema.Number),
+  requestId: RequestId,
+  threadRoot: Schema.NullOr(Schema.Number),
 }) {}
 
 export class ReadPayload extends Schema.Class<ReadPayload>("ReadPayload")({
-  requestId: RequestId,
   actor: Actor,
-  since: Schema.Number,
   limit: Schema.Number,
+  requestId: RequestId,
+  since: Schema.Number,
   thread: Schema.NullOr(Schema.Number),
 }) {}
 
-export class TranscriptPayload extends Schema.Class<TranscriptPayload>("TranscriptPayload")({
-  requestId: RequestId,
+export class TranscriptPayload extends Schema.Class<TranscriptPayload>(
+  "TranscriptPayload"
+)({
   actor: Actor,
-  since: Schema.Number,
-  limit: Schema.Number,
-  thread: Schema.NullOr(Schema.Number),
   format: Schema.Literals(["markdown", "json"]),
+  limit: Schema.Number,
+  requestId: RequestId,
+  since: Schema.Number,
+  thread: Schema.NullOr(Schema.Number),
 }) {}
 
-export class ThreadsPayload extends Schema.Class<ThreadsPayload>("ThreadsPayload")({
-  requestId: RequestId,
+export class ThreadsPayload extends Schema.Class<ThreadsPayload>(
+  "ThreadsPayload"
+)({
   actor: Actor,
   limit: Schema.Number,
+  requestId: RequestId,
 }) {}
 
-export class SearchPayload extends Schema.Class<SearchPayload>("SearchPayload")({
-  requestId: RequestId,
-  actor: Actor,
-  query: Schema.String,
-  limit: Schema.Number,
-}) {}
+export class SearchPayload extends Schema.Class<SearchPayload>("SearchPayload")(
+  {
+    actor: Actor,
+    limit: Schema.Number,
+    query: Schema.String,
+    requestId: RequestId,
+  }
+) {}
 
 export class WaitPayload extends Schema.Class<WaitPayload>("WaitPayload")({
-  requestId: RequestId,
   actor: Actor,
-  since: Schema.Number,
   limit: Schema.Number,
+  requestId: RequestId,
+  since: Schema.Number,
   timeoutMs: Schema.Number,
 }) {}
 
-export class UnreadPayload extends Schema.Class<UnreadPayload>("UnreadPayload")({
-  requestId: RequestId,
-  actor: Actor,
-}) {}
+export class UnreadPayload extends Schema.Class<UnreadPayload>("UnreadPayload")(
+  {
+    actor: Actor,
+    requestId: RequestId,
+  }
+) {}
 
-export class MarkReadPayload extends Schema.Class<MarkReadPayload>("MarkReadPayload")({
-  requestId: RequestId,
+export class MarkReadPayload extends Schema.Class<MarkReadPayload>(
+  "MarkReadPayload"
+)({
   actor: Actor,
+  requestId: RequestId,
   seq: Schema.Number,
 }) {}
 
 export class ReactPayload extends Schema.Class<ReactPayload>("ReactPayload")({
-  requestId: RequestId,
   actor: Actor,
-  seq: Schema.Number,
   emoji: Schema.String,
+  requestId: RequestId,
+  seq: Schema.Number,
 }) {}
 
 export class EditPayload extends Schema.Class<EditPayload>("EditPayload")({
-  requestId: RequestId,
   actor: Actor,
-  seq: Schema.Number,
   body: Schema.String,
   mentions: Schema.Array(Schema.String),
-}) {}
-
-export class RedactPayload extends Schema.Class<RedactPayload>("RedactPayload")({
   requestId: RequestId,
-  actor: Actor,
   seq: Schema.Number,
 }) {}
 
-export class WebhookPayload extends Schema.Class<WebhookPayload>("WebhookPayload")({
-  requestId: RequestId,
+export class RedactPayload extends Schema.Class<RedactPayload>("RedactPayload")(
+  {
+    actor: Actor,
+    requestId: RequestId,
+    seq: Schema.Number,
+  }
+) {}
+
+export class WebhookPayload extends Schema.Class<WebhookPayload>(
+  "WebhookPayload"
+)({
   actor: Actor,
-  webhookUrl: Schema.NullOr(Schema.String),
+  requestId: RequestId,
   webhookSecret: Schema.NullOr(Schema.String),
+  webhookUrl: Schema.NullOr(Schema.String),
 }) {}
 
-export class TranscriptResult extends Schema.Class<TranscriptResult>("TranscriptResult")({
-  text: Schema.String,
+export class TranscriptResult extends Schema.Class<TranscriptResult>(
+  "TranscriptResult"
+)({
   format: Schema.Literals(["markdown", "json"]),
   nextCursor: Schema.NullOr(Schema.Number),
+  text: Schema.String,
 }) {}
 
 export class MemberList extends Schema.Class<MemberList>("MemberList")({
@@ -193,108 +215,108 @@ export class Ack extends Schema.Class<Ack>("Ack")({
 }) {}
 
 const init = HttpApiEndpoint.post("init", "/v1/init", {
+  error: [RoomNotFound, PersistenceFailed],
   payload: InitRoomPayload,
   success: RoomSummary,
-  error: [RoomNotFound, PersistenceFailed],
-})
+});
 
 const invite = HttpApiEndpoint.post("invite", "/v1/invite", {
+  error: roomFailure,
   payload: InvitePayload,
   success: MemberView,
-  error: roomFailure,
-})
+});
 
 const join = HttpApiEndpoint.post("join", "/v1/join", {
+  error: [NotInvited, RoomNotFound, PersistenceFailed, Forbidden],
   payload: JoinPayload,
   success: MemberView,
-  error: [NotInvited, RoomNotFound, PersistenceFailed, Forbidden],
-})
+});
 
 const leave = HttpApiEndpoint.post("leave", "/v1/leave", {
+  error: roomFailure,
   payload: LeavePayload,
   success: Ack,
-  error: roomFailure,
-})
+});
 
 const members = HttpApiEndpoint.post("members", "/v1/members", {
+  error: roomFailure,
   payload: MembersPayload,
   success: MemberList,
-  error: roomFailure,
-})
+});
 
 const postMessage = HttpApiEndpoint.post("postMessage", "/v1/messages", {
+  error: postFailure,
   payload: PostPayload,
   success: MessagePage,
-  error: postFailure,
-})
+});
 
 const readMessages = HttpApiEndpoint.post("readMessages", "/v1/messages/read", {
+  error: roomFailure,
   payload: ReadPayload,
   success: MessagePage,
-  error: roomFailure,
-})
+});
 
 const transcript = HttpApiEndpoint.post("transcript", "/v1/transcript", {
+  error: roomFailure,
   payload: TranscriptPayload,
   success: TranscriptResult,
-  error: roomFailure,
-})
+});
 
 const threads = HttpApiEndpoint.post("threads", "/v1/threads", {
+  error: roomFailure,
   payload: ThreadsPayload,
   success: ThreadList,
-  error: roomFailure,
-})
+});
 
 const search = HttpApiEndpoint.post("search", "/v1/search", {
+  error: roomFailure,
   payload: SearchPayload,
   success: MessagePage,
-  error: roomFailure,
-})
+});
 
 const wait = HttpApiEndpoint.post("wait", "/v1/wait", {
+  error: roomFailure,
   payload: WaitPayload,
   success: MessagePage,
-  error: roomFailure,
-})
+});
 
 const unread = HttpApiEndpoint.post("unread", "/v1/unread", {
+  error: roomFailure,
   payload: UnreadPayload,
   success: UnreadView,
-  error: roomFailure,
-})
+});
 
 const markRead = HttpApiEndpoint.post("markRead", "/v1/read", {
+  error: roomFailure,
   payload: MarkReadPayload,
   success: UnreadView,
-  error: roomFailure,
-})
+});
 
 const react = HttpApiEndpoint.post("react", "/v1/reactions", {
+  error: [...roomFailure, MessageNotFound],
   payload: ReactPayload,
   success: MessageView,
-  error: [...roomFailure, MessageNotFound],
-})
+});
 
 const edit = HttpApiEndpoint.post("edit", "/v1/messages/edit", {
+  error: [...postFailure, NotAuthor, MessageNotFound],
   payload: EditPayload,
   success: MessageView,
-  error: [...postFailure, NotAuthor, MessageNotFound],
-})
+});
 
 const redact = HttpApiEndpoint.post("redact", "/v1/messages/redact", {
+  error: [...roomFailure, NotAuthor, MessageNotFound],
   payload: RedactPayload,
   success: MessageView,
-  error: [...roomFailure, NotAuthor, MessageNotFound],
-})
+});
 
 const webhook = HttpApiEndpoint.post("webhook", "/v1/webhook", {
+  error: roomFailure,
   payload: WebhookPayload,
   success: Ack,
-  error: roomFailure,
-})
+});
 
-export class RoomGroup extends HttpApiGroup.make("room")
+class RoomGroup extends HttpApiGroup.make("room")
   .add(init)
   .add(invite)
   .add(join)

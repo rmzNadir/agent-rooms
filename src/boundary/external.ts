@@ -26,17 +26,17 @@ export const fillEnv = (name: string, value: string): void => {
 };
 
 export const isJsonObject = (
-  value: Json
+  value: Json | undefined
 ): value is { readonly [key: string]: Json } =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 export const at = <Value>(
-  value: { readonly [key: string]: Value },
+  value: { readonly [column: string]: Value },
   key: string
 ): Value | undefined => value[key];
 
 export const setAt = <Value>(
-  value: { [key: string]: Value },
+  value: { [column: string]: Value },
   key: string,
   next: Value
 ): void => {
@@ -47,26 +47,5 @@ export const parseJson = (text: string): Json => decodeJson(text);
 
 export const encodeJsonText = <A>(value: A) => encodeJson(value);
 
-export const thrownMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return String(error);
-};
-
-export const thrownError = (error: unknown): Error =>
-  error instanceof Error ? error : new Error(thrownMessage(error));
-
-export const guard = async <A>(
-  body: () => Promise<A>,
-  onError: (error: Error) => A | Promise<A>
-): Promise<A> => {
-  try {
-    return await body();
-  } catch (error) {
-    return await onError(thrownError(error));
-  }
-};
+export const causeMessage = (error: Error | string): string =>
+  error instanceof Error ? error.message : error;

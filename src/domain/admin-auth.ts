@@ -1,4 +1,4 @@
-export type AdminDecision = "bootstrap" | "accept" | "reject"
+export type AdminDecision = "bootstrap" | "accept" | "reject";
 
 /**
  * The stored admin hash is the credential after the first login.
@@ -6,12 +6,12 @@ export type AdminDecision = "bootstrap" | "accept" | "reject"
  * Rotating the stored hash revokes the env token until the operator saves the new one.
  */
 export const decideAdmin = (input: {
-  readonly presentedHash: string
-  readonly envHash: string
-  readonly storedHash: string | undefined
+  readonly presentedHash: string;
+  readonly envHash: string;
+  readonly storedHash: string | undefined;
 }): AdminDecision => {
   if (input.storedHash === undefined) {
-    return input.presentedHash === input.envHash ? "bootstrap" : "reject"
+    return input.presentedHash === input.envHash ? "bootstrap" : "reject";
   }
-  return input.presentedHash === input.storedHash ? "accept" : "reject"
-}
+  return input.presentedHash === input.storedHash ? "accept" : "reject";
+};

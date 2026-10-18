@@ -1,0 +1,61 @@
+{
+  "cyclomaticMax": 21,
+  "cognitiveMax": 21,
+  "halsteadDifficultyMax": 79,
+  "linesPerFileMax": 499,
+  "crapMax": 24,
+  "mutation": {
+    "break": 100,
+    "high": 100,
+    "low": 100,
+    "mutate": ["src/**/*.ts"]
+  },
+  "duplication": {
+    "threshold": 0,
+    "minLines": 5,
+    "minTokens": 50
+  },
+  "paths": ["alchemy.run.ts", "src", "listeners", "scripts", "test"],
+  "unitTests": [
+    "test/wake-policy.test.ts",
+    "test/transcript.test.ts",
+    "test/listener-sign.test.ts",
+    "test/webhook-url.test.ts",
+    "test/admin-auth.test.ts",
+    "test/agents-cli.test.ts",
+    "test/listener-config.test.ts",
+    "test/directory-room.test.ts",
+    "test/wake-cursor.test.ts",
+    "test/listener-flight.test.ts",
+    "test/listener-post-failure.test.ts",
+    "test/session-file.test.ts",
+    "test/socket-close.test.ts",
+    "test/harness.test.ts",
+    "test/request-url.test.ts",
+    "test/respond.test.ts",
+    "test/protocol-version.test.ts",
+    "test/public-routes.test.ts",
+    "test/dispatch-routes.test.ts",
+    "test/room-socket.test.ts",
+    "test/room-wake.test.ts",
+    "test/chat-behavior.test.ts",
+    "test/room-rules.test.ts",
+    "test/api-behavior.test.ts",
+    "test/http-routes.test.ts",
+    "test/error-schema.test.ts",
+    "test/domain-contract.test.ts",
+    "test/tool-catalog.test.ts",
+    "test/mcp-guide.test.ts",
+    "test/mcp-instructions.test.ts",
+    "test/mcp-watch.test.ts"
+  ],
+  "suppressions": [
+    "biome-ignore",
+    "eslint-disable",
+    "@ts-ignore",
+    "@ts-expect-error",
+    "@ts-nocheck",
+    "stryker-disable",
+    "Stryker disable"
+  ]
+}

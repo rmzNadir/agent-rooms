@@ -1,171 +1,300 @@
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client"
-import { agentInstructions } from "../src/mcp/guide.ts"
-import { modernProtocolVersions, supportedProtocolVersions, type SupportedProtocolVersion } from "../src/mcp/protocol.ts"
+import {
+  type CallToolResult,
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
+import type { Json } from "effect/Schema";
+import {
+  at,
+  isJsonObject,
+  parseJson,
+  readEnv,
+} from "../src/boundary/external.ts";
+import { agentInstructions } from "../src/mcp/guide.ts";
+import {
+  modernProtocolVersions,
+  type SupportedProtocolVersion,
+  supportedProtocolVersions,
+} from "../src/mcp/protocol.ts";
 
-export type ConformanceTarget = {
-  readonly url: string
-  readonly token: string
-}
-
-const textOf = (value: unknown): string => {
-  if (value === null || typeof value !== "object" || !("content" in value)) return ""
-  const content = value.content
-  if (!Array.isArray(content)) return ""
-  return content
-    .map((block) => (block !== null && typeof block === "object" && "text" in block ? String(block.text) : ""))
-    .join("")
+export interface ConformanceTarget {
+  readonly token: string;
+  readonly url: string;
 }
 
 function fail(version: string, detail: string): never {
-  throw new Error(`${version}: ${detail}`)
+  throw new Error(`${version}: ${detail}`);
 }
 
 const sameList = (actual: readonly string[], expected: readonly string[]) =>
-  actual.length === expected.length && actual.every((version, index) => version === expected[index])
+  actual.length === expected.length &&
+  actual.every((version, index) => version === expected[index]);
 
-const session = async (target: ConformanceTarget, version: SupportedProtocolVersion) => {
-  const modern = (modernProtocolVersions as readonly string[]).includes(version)
+const negotiation = (modern: boolean, version: SupportedProtocolVersion) =>
+  modern
+    ? { versionNegotiation: { mode: { pin: version } } }
+    : {
+        supportedProtocolVersions: [version],
+        versionNegotiation: { mode: "legacy" as const },
+      };
+
+const assertDiscover = (client: Client, version: SupportedProtocolVersion) => {
+  const discovered = client.getDiscoverResult();
+  if (discovered === undefined) {
+    fail(version, "server/discover returned no result");
+  }
+  const { instructions, supportedVersions: supported } = discovered;
+  if (!sameList(supported, modernProtocolVersions)) {
+    fail(version, `supportedVersions ${supported.join(", ")}`);
+  }
+  if (instructions !== agentInstructions) {
+    fail(version, "discover instructions differ from the guide");
+  }
+};
+
+const toolText = (result: CallToolResult) =>
+  result.content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+
+const assertTools = async (
+  client: Client,
+  version: SupportedProtocolVersion
+) => {
+  const listed = await client.listTools();
+  if (!listed.tools.some((tool) => tool.name === "whoami")) {
+    fail(version, "tools/list omitted whoami");
+  }
+  const called = await client.callTool({ arguments: {}, name: "whoami" });
+  const rendered = toolText(called);
+  if (!rendered.includes('"displayName"')) {
+    fail(version, `whoami returned ${rendered}`);
+  }
+};
+
+const rethrowSession = (error: Error | string, version: string) => {
+  if (error instanceof Error && error.message.startsWith(`${version}:`)) {
+    throw error;
+  }
+  fail(version, error instanceof Error ? error.message : String(error));
+};
+
+const exercise = async (
+  client: Client,
+  modern: boolean,
+  version: SupportedProtocolVersion
+) => {
+  if (modern) {
+    assertDiscover(client, version);
+  } else if (client.getInstructions() !== agentInstructions) {
+    fail(version, "initialize instructions differ from the guide");
+  }
+  await assertTools(client, version);
+};
+
+const session = async (
+  target: ConformanceTarget,
+  version: SupportedProtocolVersion
+) => {
+  const modern = (modernProtocolVersions as readonly string[]).includes(
+    version
+  );
   const client = new Client(
     { name: "agent-rooms-conformance", version: "0" },
-    modern
-      ? { versionNegotiation: { mode: { pin: version } } }
-      : { versionNegotiation: { mode: "legacy" }, supportedProtocolVersions: [version] },
-  )
+    negotiation(modern, version)
+  );
   const transport = new StreamableHTTPClientTransport(new URL(target.url), {
     requestInit: { headers: { authorization: `Bearer ${target.token}` } },
-  })
+  });
   try {
-    await client.connect(transport)
-    if (modern) {
-      const discovered = client.getDiscoverResult()
-      if (discovered === undefined) fail(version, "server/discover returned no result")
-      const supported = discovered.supportedVersions
-      const instructions = discovered.instructions
-      if (!sameList(supported, modernProtocolVersions)) fail(version, `supportedVersions ${supported.join(", ")}`)
-      if (instructions !== agentInstructions) fail(version, "discover instructions differ from the guide")
-    } else if (client.getInstructions() !== agentInstructions) {
-      fail(version, "initialize instructions differ from the guide")
-    }
-    const listed = await client.listTools()
-    if (!listed.tools.some((tool) => tool.name === "whoami")) fail(version, "tools/list omitted whoami")
-    const called = await client.callTool({ name: "whoami", arguments: {} })
-    if (!textOf(called).includes("\"displayName\"")) fail(version, `whoami returned ${textOf(called)}`)
+    await client.connect(transport);
+    await exercise(client, modern, version);
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith(`${version}:`)) throw error
-    fail(version, error instanceof Error ? error.message : String(error))
+    rethrowSession(error instanceof Error ? error : String(error), version);
   } finally {
-    await client.close()
+    await client.close();
   }
-}
+};
 
-const postJson = async (url: string, headers: Record<string, string>, body: unknown) => {
+const postJson = async (
+  url: string,
+  headers: Record<string, string>,
+  body: Json
+) => {
   const init = {
-    method: "POST",
-    headers: { connection: "close", ...headers },
     body: JSON.stringify(body),
-  }
+    headers: { connection: "close", ...headers },
+    method: "POST",
+  };
   try {
-    return await fetch(url, init)
+    return await fetch(url, init);
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("ECONNRESET")) throw error
-    return await fetch(url, init)
+    if (!(error instanceof Error && error.message.includes("ECONNRESET"))) {
+      throw error;
+    }
+    return await fetch(url, init);
   }
-}
+};
 
 const readJson = async (response: Response) => {
-  const text = await response.text()
+  const text = await response.text();
   try {
-    return JSON.parse(text) as unknown
-  } catch {
-    throw new Error(text)
+    return parseJson(text);
+  } catch (error) {
+    throw new Error(text, { cause: error });
   }
-}
+};
 
-const expectUnauthorized = async (target: ConformanceTarget, version: string) => {
+const expectUnauthorized = async (
+  target: ConformanceTarget,
+  version: string
+) => {
   const response = await postJson(
     target.url,
-    { "content-type": "application/json", accept: "application/json, text/event-stream" },
     {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "conformance", version: "0" } },
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
     },
-  )
-  if (response.status !== 401) fail(version, `missing token returned ${response.status}`)
-}
+    {
+      id: 1,
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        capabilities: {},
+        clientInfo: { name: "conformance", version: "0" },
+        protocolVersion: "2025-06-18",
+      },
+    }
+  );
+  if (response.status !== 401) {
+    fail(version, `missing token returned ${response.status}`);
+  }
+};
 
 const unsupportedBody = (version: SupportedProtocolVersion) =>
   (modernProtocolVersions as readonly string[]).includes(version)
     ? {
-        jsonrpc: "2.0",
         id: 1,
+        jsonrpc: "2.0",
         method: "server/discover",
         params: {
           _meta: {
-            "io.modelcontextprotocol/protocolVersion": "1900-01-01",
-            "io.modelcontextprotocol/clientInfo": { name: "conformance", version: "0" },
             "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": {
+              name: "conformance",
+              version: "0",
+            },
+            "io.modelcontextprotocol/protocolVersion": "1900-01-01",
           },
         },
       }
     : {
-        jsonrpc: "2.0",
         id: 1,
+        jsonrpc: "2.0",
         method: "initialize",
-        params: { protocolVersion: "1999-01-01", capabilities: {}, clientInfo: { name: "conformance", version: "0" } },
-      }
+        params: {
+          capabilities: {},
+          clientInfo: { name: "conformance", version: "0" },
+          protocolVersion: "1999-01-01",
+        },
+      };
 
-const expectUnsupported = async (target: ConformanceTarget, version: SupportedProtocolVersion) => {
-  const modern = (modernProtocolVersions as readonly string[]).includes(version)
+const unsupportedHeaders = (target: ConformanceTarget, modern: boolean) => ({
+  accept: "application/json, text/event-stream",
+  authorization: `Bearer ${target.token}`,
+  "content-type": "application/json",
+  "mcp-protocol-version": modern ? "1900-01-01" : "1999-01-01",
+  ...(modern ? { "mcp-method": "server/discover" } : {}),
+});
+
+const errorObject = (version: string, parsed: Json) => {
+  if (!isJsonObject(parsed)) {
+    fail(version, "unsupported version was not a JSON-RPC error");
+  }
+  const rpcError = at(parsed, "error");
+  if (rpcError === undefined || !isJsonObject(rpcError)) {
+    fail(version, "unsupported version error had no data");
+  }
+  return rpcError;
+};
+
+const recordData = (version: string, data: Json | undefined) => {
+  if (data === undefined || !isJsonObject(data)) {
+    fail(version, "unsupported version omitted supported");
+  }
+  return data;
+};
+
+const supportedOf = (version: string, data: Json | undefined) => {
+  const record = recordData(version, data);
+  const supportedValue = at(record, "supported");
+  if (!Array.isArray(supportedValue)) {
+    fail(version, "unsupported version omitted supported");
+  }
+  const supported = supportedValue.map(String);
+  if (!sameList(supported, supportedProtocolVersions)) {
+    fail(version, `supported list ${supported.join(", ")}`);
+  }
+};
+
+const expectUnsupported = async (
+  target: ConformanceTarget,
+  version: SupportedProtocolVersion
+) => {
+  const modern = (modernProtocolVersions as readonly string[]).includes(
+    version
+  );
   const response = await postJson(
     target.url,
-    {
-      authorization: `Bearer ${target.token}`,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      "mcp-protocol-version": modern ? "1900-01-01" : "1999-01-01",
-      ...(modern ? { "mcp-method": "server/discover" } : {}),
-    },
-    unsupportedBody(version),
-  )
-  let parsed: unknown
+    unsupportedHeaders(target, modern),
+    unsupportedBody(version)
+  );
+  let parsed: Json;
   try {
-    parsed = await readJson(response)
+    parsed = await readJson(response);
   } catch (error) {
-    fail(version, error instanceof Error ? error.message : String(error))
+    fail(version, error instanceof Error ? error.message : String(error));
   }
-  if (response.status !== 400) fail(version, `unsupported version returned ${response.status}`)
-  if (parsed === null || typeof parsed !== "object" || !("error" in parsed)) fail(version, "unsupported version was not a JSON-RPC error")
-  const rpcError = parsed.error
-  if (rpcError === null || typeof rpcError !== "object" || !("code" in rpcError) || !("data" in rpcError)) {
-    fail(version, "unsupported version error had no data")
+  if (response.status !== 400) {
+    fail(version, `unsupported version returned ${response.status}`);
   }
-  const code = rpcError.code
-  const data = rpcError.data
-  if (code !== -32022) fail(version, `unsupported version code ${String(code)}`)
-  if (data === null || typeof data !== "object" || !("supported" in data) || !Array.isArray(data.supported)) {
-    fail(version, "unsupported version omitted supported")
+  const rpcError = errorObject(version, parsed);
+  if (at(rpcError, "code") !== -32_022) {
+    fail(version, `unsupported version code ${String(at(rpcError, "code"))}`);
   }
-  const supported = data.supported.map(String)
-  if (!sameList(supported, supportedProtocolVersions)) fail(version, `supported list ${supported.join(", ")}`)
-}
+  supportedOf(version, at(rpcError, "data"));
+};
 
-export const runConformance = async (target: ConformanceTarget) => {
-  for (const version of supportedProtocolVersions) {
-    await session(target, version)
-    await expectUnauthorized(target, version)
-    await expectUnsupported(target, version)
+const checkVersion = async (
+  target: ConformanceTarget,
+  versions: readonly SupportedProtocolVersion[],
+  index: number
+): Promise<void> => {
+  const version = versions[index];
+  if (version === undefined) {
+    return;
   }
-}
+  await session(target, version);
+  await expectUnauthorized(target, version);
+  await expectUnsupported(target, version);
+  await checkVersion(target, versions, index + 1);
+};
+
+export const runConformance = (target: ConformanceTarget) =>
+  checkVersion(target, supportedProtocolVersions, 0);
 
 if (import.meta.main) {
-  const url = process.env.AGENT_ROOMS_URL
-  const token = process.env.AGENT_ROOMS_TOKEN
-  if (url === undefined || url.length === 0 || token === undefined || token.length === 0) {
-    console.error("Set AGENT_ROOMS_URL and AGENT_ROOMS_TOKEN.")
-    process.exit(1)
+  const url = readEnv("AGENT_ROOMS_URL");
+  const token = readEnv("AGENT_ROOMS_TOKEN");
+  if (
+    url === undefined ||
+    url.length === 0 ||
+    token === undefined ||
+    token.length === 0
+  ) {
+    console.error("Set AGENT_ROOMS_URL and AGENT_ROOMS_TOKEN.");
+    process.exit(1);
   }
-  const mcp = url.endsWith("/mcp") ? url : `${url.replace(/\/$/, "")}/mcp`
-  await runConformance({ url: mcp, token })
+  const mcp = url.endsWith("/mcp") ? url : `${url.replace(/\/$/, "")}/mcp`;
+  await runConformance({ token, url: mcp });
 }
