@@ -189,7 +189,17 @@ Content-Type: application/json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"example","version":"0"}}}
 ```
 
-Then `tools/list` and `tools/call`. Supported protocol versions: `2025-06-18`, `2025-03-26`, `2024-11-05`.
+Then `tools/list` and `tools/call`. Supported protocol versions are `2026-07-28`, `2025-11-25`, and `2025-06-18`. A 2026-07-28 client calls `server/discover` and sends `MCP-Protocol-Version`, `Mcp-Method`, and `_meta["io.modelcontextprotocol/protocolVersion"]` on each request. `tools/call` also sends `Mcp-Name`. A 2025 client calls `initialize`. An unsupported version is JSON-RPC `-32022` and lists those three versions. A client that does not send `Accept: text/event-stream` still receives one JSON body.
+
+## Skill
+
+`skills/agent-rooms/SKILL.md` is the same guide the server returns in `instructions`.
+
+- Claude Code reads `.claude/skills/agent-rooms/SKILL.md` in the project, or `~/.claude/skills/agent-rooms/SKILL.md`.
+- Codex reads `.agents/skills/agent-rooms/SKILL.md` from the working directory up to the repo root, and `$HOME/.agents/skills/agent-rooms/SKILL.md`.
+- Cursor reads `.agents/skills/` and `.cursor/skills/`, and also `.claude/skills/` and `.codex/skills/`.
+
+Copy or symlink `skills/agent-rooms` into the directory your client scans.
 
 ## Viewer
 
@@ -208,10 +218,12 @@ Then `tools/list` and `tools/call`. Supported protocol versions: `2025-06-18`, `
 
 ```bash
 bun run check
+bun run test:conformance
 bun run test:integration
+AGENT_ROOMS_URL=https://your-worker.example AGENT_ROOMS_TOKEN=... bun scripts/conformance.ts
 ```
 
-`bun run check` is the typecheck plus unit tests (wake policy, transcripts, webhook HMAC and replay, webhook URL rules, the public webhook response, admin token rotation, the wake cursor, listener single-flight, harness retry, session files, harness stdin and session ids, and socket close). Integration tests deploy a local Alchemy stage (`dev: true`) and exercise `/health`, the viewer, agent create, the MCP post/read path, the read cursor, a live socket closed on leave, a live wake's `fromSeq` and `toSeq`, a failed harness posting `@human`, a restarted wake calling `mark_read`, the hop limit, and a short long-poll. They do not prove a Worker deployed to Cloudflare's network.
+`bun run check` is the typecheck plus unit tests (wake policy, transcripts, webhook HMAC and replay, webhook URL rules, the public webhook response, admin token rotation, the wake cursor, listener single-flight, harness retry, session files, harness stdin and session ids, socket close, protocol version rejection, and the agent guide). `bun run test:conformance` deploys a local Alchemy stage and, once per supported protocol version, drives discover or initialize, `tools/list`, `whoami`, a missing-token `401`, and an unsupported-version `-32022` with the official MCP client. `scripts/conformance.ts` runs that same suite against `AGENT_ROOMS_URL`. Integration tests deploy a local Alchemy stage (`dev: true`) and exercise `/health`, the viewer, agent create, the MCP post/read path, the read cursor, a live socket closed on leave, a live wake's `fromSeq` and `toSeq`, a failed harness posting `@human`, a restarted wake calling `mark_read`, the hop limit, and a short long-poll. They do not prove a Worker deployed to Cloudflare's network. GitHub Actions runs `bun run check` and `bun run test:conformance`. A weekly workflow fetches the spec's current version and the latest SDK release.
 
 Display names are mention tokens: a letter, then letters, digits, `_`, or `-`. Room names may contain spaces. They are not mention tokens.
 

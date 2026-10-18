@@ -1,19 +1,20 @@
-import { Effect, Schema } from "effect"
+import {
+  createMcpHandler,
+  DEFAULT_MAX_REQUEST_BODY_SIZE,
+  fromJsonSchema,
+  McpServer,
+  type JsonSchemaType,
+  type jsonSchemaValidator,
+  type StandardSchemaWithJSON,
+} from "@modelcontextprotocol/server"
+import { Context, Effect, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/http"
-import { json } from "../api/respond.ts"
 import { Chat, type ChatError } from "../app/chat.ts"
 import type { Actor } from "../domain/actor.ts"
 import { InvalidArgument, publicErrorBody } from "../domain/errors.ts"
 import { AgentId, internalRequestId, makeRequestId, RoomId, type RequestId } from "../domain/ids.ts"
-
-const protocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"] as const
-
-const RpcMessage = Schema.Struct({
-  jsonrpc: Schema.Literal("2.0"),
-  method: Schema.String,
-  id: Schema.optional(Schema.Union([Schema.String, Schema.Number, Schema.Null])),
-  params: Schema.optional(Schema.Unknown),
-})
+import { agentInstructions } from "./guide.ts"
+import { supportedProtocolVersions, unsupportedProtocolVersionBody, versionRejection } from "./protocol.ts"
 
 const Args = Schema.Record(Schema.String, Schema.Unknown)
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
@@ -79,11 +80,6 @@ const decode = <A>(schema: Schema.Decoder<A>, value: unknown, requestId: Request
   Effect.catchTag(Schema.decodeUnknownEffect(schema)(value), "SchemaError", () =>
     Effect.fail(invalid(requestId, field, "does not match the tool schema")),
   )
-
-const rpcResult = (id: string | number | null, result: unknown) => json(200, { jsonrpc: "2.0", id, result })
-
-const rpcError = (id: string | number | null, code: number, message: string) =>
-  json(200, { jsonrpc: "2.0", id, error: { code, message } })
 
 const objectSchema = (properties: Record<string, unknown>, required: ReadonlyArray<string>) => ({
   type: "object",
@@ -332,43 +328,128 @@ const callTool = (actor: Actor, name: string, rawArgs: unknown, requestId: Reque
     }
   })
 
+const streamAccept = "application/json, text/event-stream"
+
+const effectValidatesArguments = {
+  getValidator: () => (input: unknown) => ({ valid: true, data: input, errorMessage: undefined }),
+} as jsonSchemaValidator
+
+const readCapped = async (
+  request: { readonly headers: { get(name: string): string | null }; readonly body: ReadableStream<Uint8Array> | null },
+  max: number,
+): Promise<string | undefined> => {
+  const declared = Number(request.headers.get("content-length"))
+  if (Number.isFinite(declared) && declared > max) return undefined
+  const body = request.body
+  if (body === null) return ""
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value === undefined) continue
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel()
+      return undefined
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
+}
+
+const singleSseData = (body: string): string | undefined => {
+  const data = body
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .filter((line) => line.length > 0)
+  const payload = data[0]
+  if (data.length !== 1 || payload === undefined) return undefined
+  try {
+    JSON.parse(payload)
+  } catch {
+    return undefined
+  }
+  return payload
+}
+
+const jsonResponse = (body: string, status: number) =>
+  new Response(body, { status, headers: { "content-type": "application/json" } })
+
+const serverFor = (actor: Actor, services: Context.Context<Chat>) => {
+  const server = new McpServer(
+    { name: "agent-rooms", version: "0.1.0" },
+    {
+      instructions: agentInstructions,
+      capabilities: { tools: { listChanged: false } },
+      supportedProtocolVersions: [...supportedProtocolVersions],
+    },
+  )
+  for (const tool of tools) {
+    const inputSchema = fromJsonSchema(tool.inputSchema as JsonSchemaType, effectValidatesArguments)
+    server.registerTool<StandardSchemaWithJSON, StandardSchemaWithJSON>(
+      tool.name,
+      { description: tool.description, inputSchema },
+      async (args) => {
+        const raw = args !== null && typeof args === "object" ? args : {}
+        const body = await yieldTool(services, actor, tool.name, raw)
+        return {
+          content: body.content.map((block) => ({ type: block.type, text: block.text })),
+          isError: body.isError,
+        }
+      },
+    )
+  }
+  return server
+}
+
+const yieldTool = (services: Context.Context<Chat>, actor: Actor, name: string, raw: unknown) =>
+  Effect.runPromiseWith(services)(
+    Effect.gen(function* () {
+      const requestId = yield* Effect.catchTag(makeRequestId(), "SchemaError", () => Effect.succeed(internalRequestId))
+      return yield* Effect.catchTag(callTool(actor, name, raw, requestId), "InvalidArgument", toolErr)
+    }),
+  )
+
+export const serveMcp = async (web: Request, actor: Actor, services: Context.Context<Chat>): Promise<Response> => {
+  const accept = web.headers.get("accept") ?? ""
+  const wantsStream = accept.includes("text/event-stream")
+  const headers = new Headers(web.headers)
+  if (!wantsStream) headers.set("accept", streamAccept)
+  const forwarded = new Request(web, { headers })
+  const bodyText = await readCapped(forwarded.clone(), DEFAULT_MAX_REQUEST_BODY_SIZE)
+  const rejection =
+    bodyText === undefined ? undefined : versionRejection(bodyText, forwarded.headers.get("mcp-protocol-version"))
+  if (rejection !== undefined) return jsonResponse(JSON.stringify(unsupportedProtocolVersionBody(rejection)), 400)
+  const handler = createMcpHandler(() => serverFor(actor, services), { legacy: "stateless" })
+  const response = await handler.fetch(forwarded, {
+    authInfo: { token: "bearer", clientId: actor.agentId, scopes: [], extra: { agentId: actor.agentId } },
+  })
+  if (wantsStream || !response.headers.get("content-type")?.includes("text/event-stream")) return response
+  const text = await response.text()
+  const payload = singleSseData(text)
+  if (payload === undefined) return new Response(text, { status: response.status, headers: response.headers })
+  return jsonResponse(payload, response.status)
+}
+
 export const handleMcp = (actor: Actor) =>
   Effect.gen(function* () {
-    const parsed = yield* Effect.result(HttpServerRequest.schemaBodyJson(RpcMessage))
-    if (parsed._tag === "Failure") {
-      return yield* rpcError(null, -32700, "Request body must be a JSON-RPC 2.0 object.")
-    }
-    const message = parsed.success
-    const id = message.id ?? null
-    if (message.id === undefined || message.method.startsWith("notifications/")) {
-      return HttpServerResponse.empty({ status: 202 })
-    }
-    if (message.method === "ping") return yield* rpcResult(id, {})
-    if (message.method === "initialize") {
-      const params = yield* Effect.result(Schema.decodeUnknownEffect(Args)(message.params ?? {}))
-      const requested = params._tag === "Success" ? params.success.protocolVersion : undefined
-      const protocolVersion = protocolVersions.find((version) => version === requested) ?? "2025-06-18"
-      return yield* rpcResult(id, {
-        protocolVersion,
-        capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "agent-rooms", version: "0.1.0" },
-      })
-    }
-    if (message.method === "tools/list") {
-      return yield* rpcResult(id, { tools })
-    }
-    if (message.method === "tools/call") {
-      const params = yield* Effect.result(Schema.decodeUnknownEffect(Args)(message.params ?? {}))
-      if (params._tag === "Failure") return yield* rpcError(id, -32602, "tools/call params must be an object.")
-      const name = params.success.name
-      if (typeof name !== "string") return yield* rpcError(id, -32602, "tools/call requires a string name.")
-      const requestId = yield* Effect.catchTag(makeRequestId(), "SchemaError", () => Effect.succeed(internalRequestId))
-      const result = yield* Effect.catchTag(
-        callTool(actor, name, params.success.arguments ?? {}, requestId),
-        "InvalidArgument",
-        toolErr,
-      )
-      return yield* rpcResult(id, result)
-    }
-    return yield* rpcError(id, -32601, `Method ${message.method} is not implemented. Use initialize, tools/list, or tools/call.`)
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const services = yield* Effect.context<Chat>()
+    const source = request.source
+    if (!(source instanceof Request)) return yield* Effect.die("The worker request has no web Request.")
+    const response = yield* Effect.promise(() => serveMcp(source, actor, services))
+    const bytes = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()))
+    return HttpServerResponse.uint8Array(bytes, {
+      status: response.status,
+      contentType: response.headers.get("content-type") ?? "application/json",
+    })
   })
