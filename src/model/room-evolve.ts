@@ -73,7 +73,7 @@ const nextHop = (
   if (event.message.authorKind === "human") {
     return 0;
   }
-  if (event.targets.length > 0 && event.message.authorKind === "agent") {
+  if (event.targets.length > 0) {
     return hopCount + 1;
   }
   return hopCount;

@@ -4,7 +4,7 @@ const stamp = (millis: number) => new Date(millis).toISOString();
 
 export const renderTranscript = (input: {
   readonly roomName: string;
-  readonly format: "markdown" | "json";
+  readonly format: string;
   readonly messages: readonly MessageView[];
 }): string => {
   if (input.format === "json") {
@@ -22,6 +22,9 @@ export const renderTranscript = (input: {
       })),
       roomName: input.roomName,
     });
+  }
+  if (input.format !== "markdown") {
+    return "";
   }
   const lines = [`# ${input.roomName}`, ""];
   for (const message of input.messages) {

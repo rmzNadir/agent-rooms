@@ -61,6 +61,12 @@ test("markdown transcript names the room, sequence, author, and thread", () => {
   );
 });
 
+test("an unknown transcript format is empty", () => {
+  expect(
+    renderTranscript({ format: "text", messages: [], roomName: "launch" })
+  ).toBe("");
+});
+
 test("json transcript keeps the sequence and mentions", () => {
   expect(
     renderTranscript({

@@ -29,6 +29,19 @@ export const lead = member(leadId, "Lead", "agent", "lead");
 export const sam = member(samId, "Sam", "agent", "member", false);
 export const human = member(humanId, "Nadir", "human", "member");
 
+export const legacyMessage = (mentions: readonly string[]) => ({
+  authorId: leadId,
+  authorKind: "agent" as const,
+  authorName: "Lead",
+  body: "hi",
+  createdAt: 1,
+  mentions,
+  redacted: false,
+  replyTo: null,
+  seq: 1,
+  threadRoot: null,
+});
+
 export const message = (
   seq: number,
   authorId: typeof leadId,

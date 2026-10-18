@@ -39,40 +39,35 @@ const joinedMember = (state: RoomState, agentId: AgentId) =>
 const messageAt = (state: RoomState, seq: number) =>
   state.messages.find((message) => message.seq === seq);
 
+const messageBySeq = (messages: readonly MessageState[], seq: number | null) =>
+  messages.find((message) => message.seq === seq);
+
 const placedThread = (
   messages: readonly MessageState[],
   replyTo: number | null,
   threadRoot: number | null
 ) => {
-  const found = (seq: number) =>
-    messages.find((message) => message.seq === seq);
-  if (replyTo !== null && found(replyTo) === undefined) {
+  const parent = messageBySeq(messages, replyTo);
+  if (replyTo !== null && parent === undefined) {
     return { missing: replyTo };
   }
-  const reply = replyTo === null ? undefined : found(replyTo);
-  const root =
-    replyTo === null
-      ? threadRoot
-      : (threadRoot ?? reply?.threadRoot ?? replyTo);
-  if (root !== null && found(root) === undefined) {
+  const root = threadRoot ?? parent?.threadRoot ?? replyTo;
+  if (root !== null && messageBySeq(messages, root) === undefined) {
     return { missing: root };
   }
   return { replyTo, threadRoot: root };
 };
 
-const mentionRejection = (
-  plan: ReturnType<typeof planPost>
-): MentionRequired | UnknownMention | SelfMentionOnly | undefined => {
+const rejectionOf = (
+  plan: Exclude<ReturnType<typeof planPost>, { readonly _tag: "Accept" }>
+) => {
   if (plan._tag === "RejectUntagged") {
     return new MentionRequired();
   }
   if (plan._tag === "UnknownMention") {
     return new UnknownMention({ token: plan.token });
   }
-  if (plan._tag === "SelfMentionOnly") {
-    return new SelfMentionOnly();
-  }
-  return undefined;
+  return new SelfMentionOnly();
 };
 
 const wakeMembers = (members: readonly MemberState[]) =>
@@ -198,11 +193,10 @@ const postPlan = (
     members: wakeMembers(state.members),
     paused: state.paused,
   });
-  const rejected = mentionRejection(plan);
-  if (rejected !== undefined) {
-    return rejected;
+  if (plan._tag === "Accept") {
+    return plan;
   }
-  return plan._tag === "Accept" ? plan : new MentionRequired();
+  return rejectionOf(plan);
 };
 
 export const decidePost = (
@@ -356,12 +350,12 @@ export const decideReact = (
   if (joinedMember(state, command.actorId) === undefined) {
     return new NotMember();
   }
-  if (messageAt(state, command.seq) === undefined) {
+  const message = messageAt(state, command.seq);
+  if (message === undefined) {
     return new MessageNotFound();
   }
-  const message = messageAt(state, command.seq);
   const added =
-    message?.reactions.some(
+    message.reactions.some(
       (reaction) =>
         reaction.agentId === command.actorId && reaction.emoji === command.emoji
     ) !== true;
