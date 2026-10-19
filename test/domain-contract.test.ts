@@ -239,6 +239,20 @@ test("minted ids are random hex with the effect span name", async () => {
   ]);
 });
 
+test("a secret pads a byte below sixteen", async () => {
+  const random = crypto.getRandomValues;
+  const fill = (target: Uint8Array) => {
+    target.fill(0);
+    target[0] = 10;
+    return target;
+  };
+  crypto.getRandomValues = fill as typeof crypto.getRandomValues;
+  const secret = await Effect.runPromise(makeSecret()).finally(() => {
+    crypto.getRandomValues = random;
+  });
+  expect(secret).toBe(`0a${"00".repeat(31)}`);
+});
+
 test("tokens hash, sign, and decode json under their span names", async () => {
   names.length = 0;
   const hashed = await traced(hashToken("token"));
