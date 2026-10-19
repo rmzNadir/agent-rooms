@@ -194,7 +194,7 @@ describe("cloudflare paths", () => {
       "100 percent"
     );
     await expect(rollBack(call, "acc", "Api", "ver-live")).rejects.toThrow(
-      "rollback failed 500"
+      "rollback failed 500 cloudflare request failed"
     );
     const posted: CfCall = (method, path, body) => {
       expect(method).toBe("POST");
@@ -203,6 +203,14 @@ describe("cloudflare paths", () => {
       return Promise.resolve(ok("{}"));
     };
     await rollBack(posted, "acc", "Api", "ver-live");
+    const blocked: CfCall = () =>
+      later(
+        '{"success":false,"errors":[{"code":10074,"message":"migration blocks rollback"}],"SECRET_BODY":"nope"}',
+        400
+      );
+    await expect(rollBack(blocked, "acc", "Api", "ver-live")).rejects.toThrow(
+      "rollback failed 400 10074 migration blocks rollback"
+    );
     await deleteScript(call, "acc", "missing");
     await deleteScript(call, "acc", "present");
     const denied: CfCall = () => Promise.resolve(ok("", 500));

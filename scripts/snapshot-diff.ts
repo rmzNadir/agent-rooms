@@ -119,12 +119,28 @@ export const boolField = (value: Json | undefined, key: string) => {
   return typeof found === "boolean" ? found : undefined;
 };
 
+const cloudflareFailed = "cloudflare request failed";
+
 export const cfError = (payload: Json) => {
   const errors = field(payload, "errors");
   if (!Array.isArray(errors)) {
-    return "cloudflare request failed";
+    return cloudflareFailed;
   }
-  return textField(errors[0], "message") ?? "cloudflare request failed";
+  return textField(errors[0], "message") ?? cloudflareFailed;
+};
+
+export const cfFailure = (payload: Json) => {
+  const errors = field(payload, "errors");
+  const first = Array.isArray(errors) ? errors[0] : undefined;
+  const code = numberField(first, "code");
+  const message = textField(first, "message");
+  if (code === undefined) {
+    return message ?? cloudflareFailed;
+  }
+  if (message === undefined) {
+    return `${code}`;
+  }
+  return `${code} ${message}`;
 };
 
 export const bucketReady = (status: number, payload: Json) =>
@@ -310,6 +326,59 @@ const pushCount = (
   }
 };
 
+const isRecord = (
+  value: Json | undefined
+): value is { readonly [key: string]: Json } =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const sameValue = (
+  left: Json | undefined,
+  right: Json | undefined
+): boolean => {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return sameList(left, right);
+  }
+  if (isRecord(left) && isRecord(right)) {
+    return sameRecord(left, right);
+  }
+  return false;
+};
+
+const sameList = (left: readonly Json[], right: readonly Json[]) =>
+  left.length === right.length &&
+  left.every((item, index) => sameValue(item, right[index]));
+
+const sameRecord = (
+  left: { readonly [key: string]: Json },
+  right: { readonly [key: string]: Json }
+) => {
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((key) => sameValue(field(left, key), field(right, key)))
+  );
+};
+
+const sameTranscript = (before: string, after: string) => {
+  if (before === after) {
+    return true;
+  }
+  try {
+    return sameValue(parseJson(before), parseJson(after));
+  } catch {
+    return false;
+  }
+};
+
+const priorLead = (room: RoomSnap) =>
+  room.members.find((member) => member.role === "lead")?.agentId;
+
+const leadChanged = (before: RoomSnap, after: RoomSnap) =>
+  before.leadId !== after.leadId && priorLead(before) !== after.leadId;
+
 const roomLine = (before: RoomSnap, after: RoomSnap) => {
   const lines: string[] = [];
   pushCount(
@@ -326,10 +395,10 @@ const roomLine = (before: RoomSnap, after: RoomSnap) => {
     before.memberCount,
     after.memberCount
   );
-  if (before.transcript !== after.transcript) {
+  if (!sameTranscript(before.transcript, after.transcript)) {
     lines.push(`room ${before.roomId} transcript differs`);
   }
-  if (before.leadId !== after.leadId || before.name !== after.name) {
+  if (leadChanged(before, after) || before.name !== after.name) {
     lines.push(`room ${before.roomId} name or lead differs`);
   }
   if (before.topic !== after.topic) {

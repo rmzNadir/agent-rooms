@@ -2,6 +2,7 @@ import type { CfCall } from "./http-text.ts";
 import {
   bucketReady,
   cfError,
+  cfFailure,
   deploymentRows,
   expiredKeys,
   field,
@@ -179,7 +180,9 @@ export const rollBack = async (
     "application/json"
   );
   if (!httpOk(reply.status)) {
-    failed("rollback", reply.status);
+    throw new Error(
+      `rollback failed ${reply.status} ${cfFailure(readPayload(reply.text))}`
+    );
   }
 };
 

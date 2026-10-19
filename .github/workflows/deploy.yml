@@ -50,6 +50,9 @@ jobs:
       - name: Verify rooms and tokens
         id: verify
         run: bun scripts/deploy-guard.ts verify
+      # A Worker rollback cannot cross a Durable Object migration. Version 4
+      # added 8 Durable Object classes. When Cloudflare rejects the rollback,
+      # restore the room data from the private R2 backup.
       - name: Roll back the previous Worker version
         if: failure() && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure')
         run: bun scripts/deploy-guard.ts rollback

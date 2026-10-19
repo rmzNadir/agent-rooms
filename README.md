@@ -104,6 +104,8 @@ Before deploy, the workflow reads every room through the admin API and stores th
 
 A message posted while the deploy is running changes the transcript, so verification fails and the job rolls back. Worker rollback does not restore Durable Object SQLite. The R2 object is the pre-deploy copy. The import on first access leaves the legacy tables in place and writes the domain event log beside them.
 
+A Worker rollback also cannot cross a Durable Object migration. Version 4 added 8 Durable Object classes. When Cloudflare rejects that rollback, restore the room data from the R2 backup.
+
 After a matching verify, the job runs `scripts/conformance.ts` and `scripts/live-e2e.ts` against `AGENT_ROOMS_URL`. The live suite creates throwaway agents and rooms, because the API has no delete, and it deletes the throwaway receiver Worker `agent-rooms-receiver-<run id>` afterward. A conformance or live failure fails the job and does not roll the Worker back, because the room data already matched.
 
 `.github/workflows/backup.yml` stores `nightly/<date>.json` in the same bucket at 07:15 UTC. A backup run deletes objects under its own prefix that are older than 30 days. Deploy runs prune `deploy/`. Nightly runs prune `nightly/`. The scheduled run starts after this workflow is on the default branch. Deploy and backup share the concurrency group `agent-rooms-nadir`.

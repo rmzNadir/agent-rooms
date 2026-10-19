@@ -8,6 +8,7 @@ import {
   boolField,
   bucketReady,
   cfError,
+  cfFailure,
   compareBackups,
   deploymentRows,
   expiredKeys,
@@ -89,6 +90,17 @@ describe("json fields", () => {
     expect(cfError(parseJson('{"errors":[{}]}'))).toBe(
       "cloudflare request failed"
     );
+    expect(cfFailure(parseJson("{}"))).toBe("cloudflare request failed");
+    expect(cfFailure(parseJson('{"errors":[]}'))).toBe(
+      "cloudflare request failed"
+    );
+    expect(cfFailure(parseJson('{"errors":[{"message":"nope"}]}'))).toBe(
+      "nope"
+    );
+    expect(cfFailure(parseJson('{"errors":[{"code":0}]}'))).toBe("0");
+    expect(
+      cfFailure(parseJson('{"errors":[{"code":10074,"message":"blocked"}]}'))
+    ).toBe("10074 blocked");
     expect(bucketReady(200, parseJson('{"success":true}'))).toBe(true);
     expect(bucketReady(409, parseJson("{}"))).toBe(true);
     expect(
@@ -236,6 +248,96 @@ describe("backup diff", () => {
     expect(lines.join("\n")).not.toContain("SECRET_BODY");
     expect(lines.join("\n")).not.toContain("AFTER");
     expect(compareBackups(before, before)).toEqual([]);
+  });
+
+  test("ignores message key order and a creator lead id", () => {
+    const members = [
+      {
+        agentId: "agent_creator",
+        displayName: "ada",
+        joined: true,
+        kind: "human",
+        lastReadSeq: 3,
+        role: "member",
+      },
+      {
+        agentId: "agent_a",
+        displayName: "bro",
+        joined: true,
+        kind: "agent",
+        lastReadSeq: 3,
+        role: "lead",
+      },
+    ];
+    const before = backup([
+      room("room_a", {
+        leadId: "agent_creator",
+        memberCount: 2,
+        members,
+        transcript:
+          '[{"seq":1,"author":"ada","kind":"human","body":"SECRET_BODY"}]',
+      }),
+    ]);
+    const reordered = backup([
+      room("room_a", {
+        leadId: "agent_a",
+        memberCount: 2,
+        members,
+        transcript:
+          '[{"body":"SECRET_BODY","kind":"human","author":"ada","seq":1}]',
+      }),
+    ]);
+    expect(compareBackups(before, reordered)).toEqual([]);
+    const renamed = backup([
+      room("room_a", {
+        leadId: "agent_a",
+        memberCount: 2,
+        members,
+        name: "renamed",
+        transcript:
+          '[{"body":"SECRET_BODY","kind":"human","author":"ada","seq":1}]',
+      }),
+    ]);
+    expect(compareBackups(before, renamed)).toEqual([
+      "room room_a name or lead differs",
+    ]);
+    const otherLead = backup([
+      room("room_a", {
+        leadId: "agent_z",
+        memberCount: 2,
+        members,
+        transcript: '[{"body":"OTHER","author":"ada","seq":2}]',
+      }),
+    ]);
+    const drifted = compareBackups(before, otherLead);
+    expect(drifted).toContain("room room_a transcript differs");
+    expect(drifted).toContain("room room_a name or lead differs");
+    expect(drifted.join("\n")).not.toContain("SECRET_BODY");
+    expect(drifted.join("\n")).not.toContain("OTHER");
+  });
+
+  test("compares parsed transcripts and ignores object key order", () => {
+    const pairs: ReadonlyArray<readonly [string, string, boolean]> = [
+      ['[{"z":1,"y":2}]', '[{"y":2,"z":1}]', true],
+      ['{"a":1,"b":[2]}', '{"b":[2],"a":1}', true],
+      ["[]", "[\n]", true],
+      ['{"a":{"b":1}}', '{"a":{"b":1}}', true],
+      ["[1,2]", "[2,1]", false],
+      ["[1]", "[1,2]", false],
+      ['{"a":1}', '{"a":1,"b":2}', false],
+      ['{"a":1}', '{"b":1}', false],
+      ["[", "{", false],
+      ["1", "true", false],
+      ["null", "{}", false],
+      ["[1]", '{"0":1}', false],
+    ];
+    for (const [left, right, same] of pairs) {
+      const lines = compareBackups(
+        backup([room("room_a", { transcript: left })]),
+        backup([room("room_a", { transcript: right })])
+      );
+      expect(lines.join("\n").includes("transcript differs")).toBe(!same);
+    }
   });
 
   test("reports a missing member", () => {

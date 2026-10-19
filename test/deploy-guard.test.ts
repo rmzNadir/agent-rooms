@@ -431,6 +431,7 @@ describe("workflows", () => {
     expect(deploy).toContain("group: agent-rooms-nadir");
     expect(deploy).toContain("steps.deploy.outcome == 'failure'");
     expect(deploy).toContain("steps.verify.outcome == 'failure'");
+    expect(deploy).toContain("Durable Object migration");
     expect(nightly).toContain('cron: "15 7 * * *"');
     expect(nightly).toContain("AGENT_ROOMS_BACKUP_PREFIX: nightly");
     expect(nightly).toContain("group: agent-rooms-nadir");
