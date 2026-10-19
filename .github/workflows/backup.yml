@@ -1,0 +1,35 @@
+name: Nightly room backup
+
+on:
+  schedule:
+    - cron: "15 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-rooms-nadir
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    environment: nadir
+    env:
+      AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
+      AGENT_ROOMS_BACKUP_BUCKET: agent-rooms-nadir-backups
+      AGENT_ROOMS_BACKUP_FILE: ${{ runner.temp }}/rooms-backup.json
+      AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Back up every room
+        run: bun scripts/deploy-guard.ts backup
+        env:
+          AGENT_ROOMS_BACKUP_PREFIX: nightly

@@ -65,7 +65,11 @@
     "test/tool-catalog.test.ts",
     "test/mcp-guide.test.ts",
     "test/mcp-instructions.test.ts",
-    "test/mcp-watch.test.ts"
+    "test/mcp-watch.test.ts",
+    "test/cf-client.test.ts",
+    "test/snapshot-diff.test.ts",
+    "test/deploy-guard.test.ts",
+    "test/live-e2e.test.ts"
   ],
   "suppressions": [
     "biome-ignore",
