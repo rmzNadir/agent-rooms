@@ -433,3 +433,48 @@ describe("workflows", () => {
     expect(nightly).not.toContain("bun run deploy");
   });
 });
+
+interface WorkflowStep {
+  readonly if?: string;
+  readonly name?: string;
+}
+
+interface WorkflowJob {
+  readonly env?: Record<string, string>;
+  readonly steps: readonly WorkflowStep[];
+}
+
+interface Workflow {
+  readonly jobs: {
+    readonly deploy?: WorkflowJob;
+    readonly [name: string]: WorkflowJob | undefined;
+  };
+}
+
+const jobContextExpression = /\$\{\{\s*(runner|steps|job|env)\./;
+
+const workflow = (file: string) =>
+  Bun.YAML.parse(readFileSync(file, "utf8")) as Workflow;
+
+describe("workflow contexts", () => {
+  test("job env only uses contexts GitHub allows there", () => {
+    for (const file of [
+      ".github/workflows/deploy.yml",
+      ".github/workflows/backup.yml",
+    ]) {
+      const jobs = Object.values(workflow(file).jobs);
+      const envs = jobs.map((job) => job?.env ?? {});
+      for (const env of envs) {
+        for (const value of Object.values(env)) {
+          expect(value).not.toMatch(jobContextExpression);
+        }
+      }
+    }
+  });
+
+  test("rollback still runs after a failed deploy or verify step", () => {
+    const steps = workflow(".github/workflows/deploy.yml").jobs.deploy?.steps;
+    const rollback = steps?.find((step) => step.name?.startsWith("Roll back"));
+    expect(rollback?.if?.startsWith("failure() && (")).toBe(true);
+  });
+});
