@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { memberList } from "../scripts/room-parse.ts";
 import {
   type AgentSnap,
   agentDiff,
@@ -154,9 +155,18 @@ describe("tools and transcripts", () => {
     expect(toolText(ok)).toContain("messages");
     expect(toolText(parseJson("{}"))).toBeUndefined();
     const streamed = readPayload(
-      'event: message\ndata: {"result":{"content":[{"text":"{\\"members\\":[]}"}],"isError":false}}\n'
+      'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"members\\":[{\\"agentId\\":\\"agent_a\\",\\"displayName\\":\\"ada\\",\\"joined\\":true,\\"kind\\":\\"agent\\",\\"lastReadSeq\\":4,\\"role\\":\\"lead\\"}]}"}],"isError":false}}\n\n'
     );
-    expect(toolText(streamed)).toContain("members");
+    expect(memberList(streamed)).toEqual([
+      {
+        agentId: "agent_a",
+        displayName: "ada",
+        joined: true,
+        kind: "agent",
+        lastReadSeq: 4,
+        role: "lead",
+      },
+    ]);
     expect(readPayload("event: message\ndata: \n")).toEqual({ success: false });
     expect(toolFailed(parseJson('{"result":{"isError":true}}'))).toBe(true);
     expect(
