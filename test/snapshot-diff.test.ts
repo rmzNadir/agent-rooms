@@ -153,6 +153,11 @@ describe("tools and transcripts", () => {
     expect(toolFailed(ok)).toBe(false);
     expect(toolText(ok)).toContain("messages");
     expect(toolText(parseJson("{}"))).toBeUndefined();
+    const streamed = readPayload(
+      'event: message\ndata: {"result":{"content":[{"text":"{\\"members\\":[]}"}],"isError":false}}\n'
+    );
+    expect(toolText(streamed)).toContain("members");
+    expect(readPayload("event: message\ndata: \n")).toEqual({ success: false });
     expect(toolFailed(parseJson('{"result":{"isError":true}}'))).toBe(true);
     expect(
       stitchTranscript([

@@ -109,10 +109,10 @@ export const whoamiName = (payload: Json) => textField(payload, "displayName");
 
 export const failureCode = (payload: Json) => {
   const raw = toolText(payload);
-  if (raw === undefined) {
-    return "tool failed";
+  if (raw !== undefined) {
+    return textField(readPayload(raw), "code") ?? "tool failed";
   }
-  return textField(readPayload(raw), "code") ?? "tool failed";
+  return textField(field(payload, "error"), "message") ?? "tool failed";
 };
 
 const toolJson = (payload: Json) => {

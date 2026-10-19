@@ -36,7 +36,7 @@ export const requestHeaders = (
     authorization?: string;
     "content-type"?: string;
   } = {
-    accept: "application/json, text/event-stream",
+    accept: "application/json",
   };
   if (token.length > 0) {
     headers.authorization = `Bearer ${token}`;

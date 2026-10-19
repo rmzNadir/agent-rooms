@@ -131,6 +131,9 @@ describe("room backup", () => {
     expect(failureCode(readPayload('{"result":{"isError":true}}'))).toBe(
       "tool failed"
     );
+    expect(
+      failureCode(readPayload('{"error":{"message":"Invalid request"}}'))
+    ).toBe("Invalid request");
     expect(roomIdIn(`created ${roomId}`)).toBe(roomId);
     expect(roomIdIn("none")).toBeUndefined();
     expect(
@@ -370,6 +373,7 @@ describe("deploy guard", () => {
   });
 
   test("request headers omit a content type until one is set", async () => {
+    expect(requestHeaders("", undefined).accept).toBe("application/json");
     expect(requestHeaders("", undefined).authorization).toBeUndefined();
     expect(requestHeaders("token", "application/json")["content-type"]).toBe(
       "application/json"

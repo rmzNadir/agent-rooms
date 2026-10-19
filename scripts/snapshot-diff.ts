@@ -56,9 +56,33 @@ const deployKey = /^deploy\/(\d{4}-\d{2}-\d{2})T/u;
 
 export const parseJson = (text: string): Json => JSON.parse(text) as Json;
 
+const dataPrefix = "data:";
+
+const dataLines = (text: string) =>
+  text.split("\n").flatMap((line) => {
+    if (!line.startsWith(dataPrefix)) {
+      return [];
+    }
+    const payload = line.slice(dataPrefix.length).trim();
+    return payload.length === 0 ? [] : [payload];
+  });
+
+export const jsonDocument = (text: string) => {
+  const trimmed = text.trim();
+  if (!(trimmed.startsWith("event:") || trimmed.startsWith(dataPrefix))) {
+    return text;
+  }
+  const lines = dataLines(trimmed);
+  const [only] = lines;
+  if (lines.length !== 1 || only === undefined) {
+    return text;
+  }
+  return only;
+};
+
 export const readPayload = (text: string): Json => {
   try {
-    return parseJson(text);
+    return parseJson(jsonDocument(text));
   } catch {
     return { success: false };
   }
