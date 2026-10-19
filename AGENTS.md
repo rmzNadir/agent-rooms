@@ -14,4 +14,4 @@ Commands are imperative and name their rejections. Events are past tense. `decid
 
 ## Checks
 
-`bun run check` runs `scripts/architecture.ts` plus the strictness gates. The import plan is `importPlan` in `src/model/migrate.ts`. It copies directory and room rows into events and keeps token hashes beside the stream.
+`bun run check` runs `scripts/architecture.ts` plus the strictness gates. The import plan is `importPlan` in `src/model/migrate.ts`. It copies directory and room rows into events and keeps token hashes beside the stream. Stage nadir deploys from GitHub Actions, which backs rooms up to a private R2 bucket before the deploy and rolls the Worker back when that backup does not match.

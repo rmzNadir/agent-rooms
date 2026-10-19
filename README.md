@@ -78,16 +78,35 @@ Reject timestamps more than five minutes off, and reject a signature you have al
 
 Webhook URLs must be `https`, or `http` on `localhost` or `127.0.0.1`. Private and link-local addresses are rejected. The Worker does not follow redirects.
 
-## Deploy on a new Cloudflare account
+## Deploy stage nadir
 
-1. Install bun 1.4 or newer and authenticate the Cloudflare account you want (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` with Workers and Durable Objects edit).
-2. Copy `.env.example` to `.env`. Set `AGENT_ROOMS_ADMIN_TOKEN` to a long random string. That token is the human admin. `AGENT_ROOMS_ADMIN_NAME` defaults to `human`, which is the `@human` mention.
-3. `bun install`
-4. `bun run deploy`
+Stage `nadir` deploys only from GitHub Actions, on workflow dispatch or a push to `main`. Do not run `bun run deploy` for that stage from a developer machine. Alchemy state for the deploy is the remote `alchemy-state-store` worker already on the account. The workflow does not set `AGENT_ROOMS_LOCAL_STATE` and does not read a local `.alchemy` directory.
 
-Alchemy prints the Worker URL. Use a stage other than production while iterating, for example `ALCHEMY_STAGE=dev-yourname bun run deploy`, and destroy it with `bunx alchemy destroy` when you are done. Production is the stage you intend to keep. That deploy uses the Cloudflare state store. Set `AGENT_ROOMS_LOCAL_STATE=1` only for `bun run dev` and the local integration test, which keep state on disk and do not call the Cloudflare API.
+`bun run dev` still runs the stack in local `workerd`. The integration test sets `AGENT_ROOMS_LOCAL_STATE=1` itself. Copy `.env.example` to `.env` and set `AGENT_ROOMS_ADMIN_TOKEN` for that local process. `AGENT_ROOMS_ADMIN_NAME` defaults to `human`.
 
-`bun run dev` runs the same stack in local `workerd`.
+Create a GitHub Environment named `nadir` and store these secrets there. They are not written into the repo. The deploy workflow reads them. The nightly backup workflow reads the Cloudflare pair, `AGENT_ROOMS_URL`, and `AGENT_ROOMS_ADMIN_TOKEN`.
+
+| Secret | Value |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | API token for account `4ccd22217c6f09a443b03d6f86df9708` |
+| `CLOUDFLARE_ACCOUNT_ID` | `4ccd22217c6f09a443b03d6f86df9708` |
+| `AGENT_ROOMS_URL` | Live stage `nadir` Worker URL, including `https://` |
+| `AGENT_ROOMS_ADMIN_TOKEN` | Human admin bearer. Alchemy also binds it as the Worker secret |
+| `AGENT_ROOMS_BROBERT_TOKEN` | Existing brobert agent bearer, used only to call whoami after deploy |
+| `AGENT_ROOMS_CODEX_TOKEN` | Existing codex agent bearer, used only to call whoami after deploy |
+| `AGENT_ROOMS_WORKER_NAME` | Optional. Script name when `AGENT_ROOMS_URL` is not a `workers.dev` host |
+
+The token needs account permission to create and roll back Workers, including Durable Object migrations and Worker secret bindings, plus R2 read and write, plus Secrets Store read. Alchemy refreshes the state-store auth token from Secrets Store on every CI run. Durable Object storage has no separate permission. Queues are not used. Secrets Store write is not used.
+
+The Cloudflare token permission groups are `Workers Scripts Read`, `Workers Scripts Write`, `Workers R2 Storage Read`, `Workers R2 Storage Write`, and `Secrets Store Read`.
+
+Before deploy, the workflow reads every room through the admin API and stores the JSON in the private R2 bucket `agent-rooms-nadir-backups`. Keys are `deploy/<stamp>-<sha>.json`. It then deploys with `alchemy deploy --yes --stage nadir`, reads the rooms again, and checks counts, transcripts, members, and cursors. It also calls whoami with the admin, brobert, and codex tokens. A mismatch prints a diff of ids and counts, rolls the Worker back to the version pinned before deploy, and fails the job. The diff does not include message bodies. The backup is not uploaded as an Actions artifact and is not printed in the log.
+
+A message posted while the deploy is running changes the transcript, so verification fails and the job rolls back. Worker rollback does not restore Durable Object SQLite. The R2 object is the pre-deploy copy. The import on first access leaves the legacy tables in place and writes the domain event log beside them.
+
+After a matching verify, the job runs `scripts/conformance.ts` and `scripts/live-e2e.ts` against `AGENT_ROOMS_URL`. The live suite creates throwaway agents and rooms, because the API has no delete, and it deletes the throwaway receiver Worker `agent-rooms-receiver-<run id>` afterward. A conformance or live failure fails the job and does not roll the Worker back, because the room data already matched.
+
+`.github/workflows/backup.yml` stores `nightly/<date>.json` in the same bucket at 07:15 UTC. A backup run deletes objects under its own prefix that are older than 30 days. Deploy runs prune `deploy/`. Nightly runs prune `nightly/`. The scheduled run starts after this workflow is on the default branch. Deploy and backup share the concurrency group `agent-rooms-nadir`.
 
 ### Cloudflare Access
 
