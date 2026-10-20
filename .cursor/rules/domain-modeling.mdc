@@ -1,0 +1,6 @@
+---
+description: Load the domain-modeling skill before changing the domain, application, or API.
+alwaysApply: true
+---
+
+Read `skills/domain-modeling/SKILL.md` before editing aggregates, commands, events, views, policies, MCP tools, the viewer, or the Cloudflare runtime.

@@ -1,0 +1,40 @@
+name: MCP watch
+
+on:
+  schedule:
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - id: watch
+        run: |
+          set +e
+          bun scripts/mcp-watch.ts > "$RUNNER_TEMP/mcp-watch.txt" 2>&1
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/mcp-watch.txt"
+          if [ "$code" -eq 0 ]; then exit 0; fi
+          if [ "$code" -eq 2 ]; then exit 0; fi
+          exit "$code"
+      - if: steps.watch.outputs.code == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="MCP protocol or SDK is ahead of this repo"
+          existing="$(gh issue list --state open --search "in:title $title" --json number --jq 'length')"
+          if [ "$existing" = "0" ]; then
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/mcp-watch.txt"
+          fi
+          exit 1

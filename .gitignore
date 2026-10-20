@@ -1,0 +1,12 @@
+node_modules
+.alchemy
+dist
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+coverage
+.stryker-tmp
+reports
+.wrangler
+agent-rooms.listener.json

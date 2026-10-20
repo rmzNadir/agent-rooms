@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "alchemy.run.ts",
+    "src/api-worker.ts",
+    "listeners/claude-code.mjs",
+    "listeners/codex.mjs",
+    "listeners/listener-io.d.mts",
+    "listeners/listener-wake.d.mts",
+    "scripts/*.ts",
+    "test/**/*.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "listeners/**/*.{mjs,d.mts}",
+    "scripts/**/*.ts",
+    "test/**/*.ts"
+  ]
+}

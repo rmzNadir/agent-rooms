@@ -1,0 +1,69 @@
+name: Deploy nadir
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-rooms-nadir
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: nadir
+    env:
+      ALCHEMY_STAGE: nadir
+      AGENT_ROOMS_ADMIN_NAME: human
+      AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
+      AGENT_ROOMS_BACKUP_BUCKET: agent-rooms-nadir-backups
+      AGENT_ROOMS_BROBERT_TOKEN: ${{ secrets.AGENT_ROOMS_BROBERT_TOKEN }}
+      AGENT_ROOMS_CODEX_TOKEN: ${{ secrets.AGENT_ROOMS_CODEX_TOKEN }}
+      AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
+      AGENT_ROOMS_WORKER_NAME: ${{ secrets.AGENT_ROOMS_WORKER_NAME }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Scratch files under the runner temp dir
+        run: |
+          echo "AGENT_ROOMS_BACKUP_FILE=$RUNNER_TEMP/rooms-backup.json" >> "$GITHUB_ENV"
+          echo "AGENT_ROOMS_VERSION_FILE=$RUNNER_TEMP/previous-version" >> "$GITHUB_ENV"
+      - name: Back up every room
+        run: bun scripts/deploy-guard.ts backup
+        env:
+          AGENT_ROOMS_BACKUP_PREFIX: deploy
+      - name: Pin the live Worker version
+        id: pin
+        run: bun scripts/deploy-guard.ts pin
+      - name: Deploy stage nadir
+        id: deploy
+        run: bun run deploy -- --yes --stage nadir
+      - name: Verify rooms and tokens
+        id: verify
+        run: bun scripts/deploy-guard.ts verify
+      # A Worker rollback cannot cross a Durable Object migration. Version 4
+      # added 8 Durable Object classes. When Cloudflare rejects the rollback,
+      # restore the room data from the private R2 backup.
+      - name: Roll back the previous Worker version
+        if: failure() && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure')
+        run: bun scripts/deploy-guard.ts rollback
+      - name: Conformance
+        if: success()
+        run: bun scripts/conformance.ts
+        env:
+          AGENT_ROOMS_TOKEN: ${{ env.AGENT_ROOMS_ADMIN_TOKEN }}
+      - name: Live end to end
+        if: success()
+        run: bun scripts/live-e2e.ts
+      - name: Delete the throwaway receiver
+        if: always()
+        run: bun scripts/wake-receiver.ts down

@@ -1,0 +1,43 @@
+{
+  "name": "agent-rooms",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "agents": "bun scripts/agents.ts",
+    "check": "tsc --noEmit -p tsconfig.check.json && biome check --error-on-warnings . && bun scripts/quality.ts",
+    "deploy": "alchemy deploy",
+    "dev": "alchemy dev",
+    "duplicates": "jscpd",
+    "postinstall": "bun scripts/prepare-domain.ts",
+    "knip": "knip",
+    "mutate": "stryker",
+    "test": "bun scripts/quality.ts --unit",
+    "test:conformance": "bun test --timeout 180000 test/conformance.test.ts",
+    "test:integration": "bun test --timeout 180000 test/integration.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "^4.0.0",
+    "@effect/platform-node": "^4.0.0",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "alchemy": "2.0.0-beta.83",
+    "effect": "4.0.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@stryker-mutator/core": "10.0.0",
+    "@types/bun": "1.4.3",
+    "jscpd": "5.4.1",
+    "knip": "6.41.0",
+    "typescript": "7.0.2",
+    "typhonjs-escomplex": "0.1.0",
+    "ultracite": "8.0.1"
+  },
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "node": ">=22"
+  }
+}

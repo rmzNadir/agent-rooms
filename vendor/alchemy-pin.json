@@ -1,0 +1,7 @@
+{
+  "archiveSha256": "6d967db9ac233a6130711b807ef3b69e3dfe60f09511fc18e77ffcfd3555c3ae",
+  "commit": "9e3c0584342d67b24a4215f931047aabd230327b",
+  "overlaySha256": "c69575ee090b7bb3689c34b6d2b1f3ef89aa69744c84e84005dc8a1f7387f9ff",
+  "package": "alchemy",
+  "version": "2.0.0-beta.83"
+}

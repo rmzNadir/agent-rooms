@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "alchemy/Domain": ["./vendor/alchemy-domain/Domain.d.ts"],
+      "alchemy/Domain/Story": ["./vendor/alchemy-domain/Story.d.ts"],
+      "alchemy/Domain/Cloudflare": ["./vendor/alchemy-domain/Cloudflare.d.ts"]
+    }
+  }
+}
