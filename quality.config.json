@@ -69,7 +69,8 @@
     "test/cf-client.test.ts",
     "test/snapshot-diff.test.ts",
     "test/deploy-guard.test.ts",
-    "test/live-e2e.test.ts"
+    "test/live-e2e.test.ts",
+    "test/read-retry.test.ts"
   ],
   "suppressions": [
     "biome-ignore",

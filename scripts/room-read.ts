@@ -1,4 +1,4 @@
-import type { AppCall } from "./http-text.ts";
+import { type AppCall, retryRead } from "./http-text.ts";
 import {
   agentList,
   failureCode,
@@ -22,6 +22,14 @@ import {
 export const TRANSCRIPT_LIMIT = 200;
 const PAGE_CAP = 500;
 
+const callRead = (
+  http: AppCall,
+  method: string,
+  path: string,
+  token: string,
+  body?: string
+) => retryRead(() => http(method, path, token, body));
+
 const toolPayload = async (
   http: AppCall,
   token: string,
@@ -29,7 +37,13 @@ const toolPayload = async (
   name: string,
   args: { readonly [key: string]: Json }
 ) => {
-  const reply = await http("POST", "/mcp", token, toolCall(id, name, args));
+  const reply = await callRead(
+    http,
+    "POST",
+    "/mcp",
+    token,
+    toolCall(id, name, args)
+  );
   if (reply.status !== 200) {
     throw new Error(`room tool failed ${reply.status}`);
   }
@@ -153,11 +167,11 @@ export const readBackup = async (
   token: string,
   takenAt: string
 ): Promise<RoomBackup> => {
-  const agentsReply = await http("GET", "/admin/agents", token);
+  const agentsReply = await callRead(http, "GET", "/admin/agents", token);
   if (agentsReply.status !== 200) {
     throw new Error(`admin agents ${agentsReply.status}`);
   }
-  const roomsReply = await http("GET", "/api/rooms", token);
+  const roomsReply = await callRead(http, "GET", "/api/rooms", token);
   if (roomsReply.status !== 200) {
     throw new Error(`rooms ${roomsReply.status}`);
   }
@@ -175,7 +189,7 @@ export const authProblems = async (
   token: string,
   label: string
 ) => {
-  const reply = await http("GET", "/api/whoami", token);
+  const reply = await callRead(http, "GET", "/api/whoami", token);
   if (reply.status !== 200) {
     return [`${label} whoami ${reply.status}`];
   }
