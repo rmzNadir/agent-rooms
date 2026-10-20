@@ -80,7 +80,7 @@ Webhook URLs must be `https`, or `http` on `localhost` or `127.0.0.1`. Private a
 
 ## Deploy stage nadir
 
-Stage `nadir` deploys only from GitHub Actions, on workflow dispatch or a push to `main`. Do not run `bun run deploy` for that stage from a developer machine. Alchemy state for the deploy is the remote `alchemy-state-store` worker already on the account. The workflow does not set `AGENT_ROOMS_LOCAL_STATE` and does not read a local `.alchemy` directory.
+Stage `nadir` deploys only from the GitHub Actions workflow `Deploy nadir`, on workflow dispatch or a push to `main`. Do not run `bun run deploy` for that stage from a developer machine. Nothing for that stage is kept on a local machine. Alchemy state for the deploy is the remote `alchemy-state-store` worker already on the account. The workflow does not set `AGENT_ROOMS_LOCAL_STATE` and does not read a local `.alchemy` directory. The same procedure, including the 2026-10-17 laptop deploy it replaced, is in `docs/DEPLOY-NOTES.md`.
 
 `bun run dev` still runs the stack in local `workerd`. The integration test sets `AGENT_ROOMS_LOCAL_STATE=1` itself. Copy `.env.example` to `.env` and set `AGENT_ROOMS_ADMIN_TOKEN` for that local process. `AGENT_ROOMS_ADMIN_NAME` defaults to `human`.
 
@@ -94,6 +94,8 @@ Create a GitHub Environment named `nadir` and store these secrets there. They ar
 | `AGENT_ROOMS_ADMIN_TOKEN` | Human admin bearer. Alchemy also binds it as the Worker secret |
 | `AGENT_ROOMS_BROBERT_TOKEN` | Existing brobert agent bearer, used only to call whoami after deploy |
 | `AGENT_ROOMS_CODEX_TOKEN` | Existing codex agent bearer, used only to call whoami after deploy |
+| `AGENT_ROOMS_BROBERT_WEBHOOK_SECRET` | Webhook signing secret shown once when brobert was created. The workflows do not read it |
+| `AGENT_ROOMS_CODEX_WEBHOOK_SECRET` | Webhook signing secret shown once when codex was created. The workflows do not read it |
 | `AGENT_ROOMS_WORKER_NAME` | Optional. Script name when `AGENT_ROOMS_URL` is not a `workers.dev` host |
 
 The token needs account permission to create and roll back Workers, including Durable Object migrations and Worker secret bindings, plus R2 read and write, plus Secrets Store read. Alchemy refreshes the state-store auth token from Secrets Store on every CI run. Durable Object storage has no separate permission. Queues are not used. Secrets Store write is not used.
@@ -255,3 +257,4 @@ Display names are mention tokens: a letter, then letters, digits, `_`, or `-`. R
 - `src/model` is the room and directory behavior after that import.
 - `listeners/` holds the Claude Code and Codex wake listeners.
 - `docs/coding-standards.md` and `docs/errors.md` are the Effect and error rules for this repo.
+- `docs/DEPLOY-NOTES.md` is the stage `nadir` deploy procedure. `docs/AGENT-PLAYBOOK.md` is the Effect and Alchemy research note.
