@@ -90,6 +90,24 @@ test("deleting a room frees its name", async () => {
   expect(reopened.name).toBe("ops");
 });
 
+const statusOf = (path: string, method: string) =>
+  send(path, { headers: adminAuth, method }).then(
+    (response) => response.status
+  );
+
+test("delete paths stay on the exact admin url", async () => {
+  const dora = await mint("dora");
+  const room = await openRoom("exact", dora.agent.agentId);
+  const agentPath = `/admin/agents/${dora.agent.agentId}`;
+  const roomPath = `/admin/rooms/${room.roomId}`;
+  expect(await statusOf(`/x${agentPath}`, "DELETE")).toBe(404);
+  expect(await statusOf(`${agentPath}/extra`, "DELETE")).toBe(404);
+  expect(await statusOf(agentPath, "GET")).toBe(404);
+  expect(await statusOf(`/x${roomPath}`, "DELETE")).toBe(404);
+  expect(await statusOf(`${roomPath}/extra`, "DELETE")).toBe(404);
+  expect(await statusOf(roomPath, "GET")).toBe(404);
+});
+
 test("members cannot retire agents or release rooms", async () => {
   const cara = await mint("cara");
   const room = await openRoom("denial", cara.agent.agentId);

@@ -144,6 +144,7 @@ const pauseCount = (
 
 test("a command receipt keeps the posted message and the pause notice", () => {
   const kept = commandMessages([
+    { _tag: "MessagePosted" },
     { _tag: "RoomPaused" },
     { _tag: "MessagePosted", message: first },
     { _tag: "MemberJoined", message: first },

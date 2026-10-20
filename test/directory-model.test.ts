@@ -230,32 +230,66 @@ test("a second directory import adds nobody", async () => {
 });
 
 test("retiring an agent and releasing a room can be repeated", async () => {
-  const enrolled = {
+  const samId = agent("agent_cccccccccccccccccccccccc");
+  const missingRoom = Schema.decodeUnknownSync(RoomId)(
+    "room_ffffffffffffffffffffffff"
+  );
+  const lead = {
     agentId: leadId,
     displayName: "Lead",
     kind: "agent" as const,
     tokenHash: "hash-1",
   };
+  const sam = {
+    agentId: samId,
+    displayName: "Sam",
+    kind: "agent" as const,
+    tokenHash: "hash-2",
+  };
+  const kept = { leadId, name: "kept", roomId, topic: "" };
   const spare = {
-    leadId,
+    leadId: samId,
     name: "spare",
     roomId: otherRoomId,
     topic: "x",
   };
   await run(
     story(
-      Story.when(directory, new RegisterAgent(enrolled)),
-      Story.then(directory, new AgentRegistered({ agent: enrolled })),
-      Story.when(directory, new ReserveRoom({ ...spare, memberIds: [leadId] })),
+      Story.when(directory, new RegisterAgent(lead)),
+      Story.then(directory, new AgentRegistered({ agent: lead })),
+      Story.when(directory, new RegisterAgent(sam)),
+      Story.then(directory, new AgentRegistered({ agent: sam })),
+      Story.when(directory, new ReserveRoom({ ...kept, memberIds: [leadId] })),
+      Story.then(directory, new RoomReserved(kept)),
+      Story.when(directory, new ReserveRoom({ ...spare, memberIds: [samId] })),
       Story.then(directory, new RoomReserved(spare)),
+      Story.when(directory, new ReleaseRoom({ roomId: missingRoom })),
+      Story.then(directory),
       Story.when(directory, new RetireAgent({ agentId: leadId })),
       Story.then(directory, new AgentRetired({ agentId: leadId })),
       Story.when(directory, new RetireAgent({ agentId: leadId })),
       Story.then(directory),
+      Story.when(
+        directory,
+        new RotateToken({ agentId: samId, tokenHash: "hash-3" })
+      ),
+      Story.then(
+        directory,
+        new TokenRotated({ agentId: samId, tokenHash: "hash-3" })
+      ),
       Story.when(directory, new ReleaseRoom({ roomId: otherRoomId })),
       Story.then(directory, new RoomReleased({ roomId: otherRoomId })),
-      Story.when(directory, new ReleaseRoom({ roomId: otherRoomId })),
-      Story.then(directory)
+      Story.when(
+        directory,
+        new ReserveRoom({
+          leadId: samId,
+          memberIds: [samId],
+          name: "kept",
+          roomId: otherRoomId,
+          topic: "",
+        })
+      ),
+      Story.rejected(new RoomNameTaken({ name: "kept" }))
     )
   );
 });
