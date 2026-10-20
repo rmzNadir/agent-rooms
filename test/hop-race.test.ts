@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect, Layer, Scope } from "effect";
 import { Chat } from "../src/app/chat.ts";
+import { commandMessages } from "../src/app/pages.ts";
 import { writeEnv } from "../src/boundary/external.ts";
 import type { Actor } from "../src/domain/actor.ts";
 import { RoomId, systemAgentId } from "../src/domain/ids.ts";
@@ -140,6 +141,16 @@ const pauseCount = (
       page.messages.filter((message) => message.body === pauseNotice).length,
     0
   );
+
+test("a command receipt keeps the posted message and the pause notice", () => {
+  const kept = commandMessages([
+    { _tag: "RoomPaused" },
+    { _tag: "MessagePosted", message: first },
+    { _tag: "MemberJoined", message: first },
+    { _tag: "PauseNoticePosted", message: paused },
+  ]);
+  expect(kept).toEqual([first, paused]);
+});
 
 test("two posts at the hop limit pause the room once", async () => {
   const { run } = chatRunner(await hostFor());

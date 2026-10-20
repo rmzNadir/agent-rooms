@@ -27,6 +27,24 @@ export const toMessageView = (message: MessageState) =>
 const inThread = (message: MessageState, thread: number | null) =>
   thread === null || message.threadRoot === thread || message.seq === thread;
 
+export const commandMessages = (
+  events: readonly {
+    readonly _tag: string;
+    readonly message?: MessageState;
+  }[]
+) => {
+  const messages: MessageState[] = [];
+  for (const event of events) {
+    if (event.message === undefined) {
+      continue;
+    }
+    if (event._tag === "MessagePosted" || event._tag === "PauseNoticePosted") {
+      messages.push(event.message);
+    }
+  }
+  return messages;
+};
+
 export const messagePage = (
   messages: readonly MessageState[],
   since: number,

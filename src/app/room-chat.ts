@@ -27,6 +27,7 @@ import {
 } from "./chat-support.ts";
 import { bodyLimit, emojiOf, limitOf, queryOf, sinceOf } from "./limits.ts";
 import {
+  commandMessages,
   messagePage,
   readCursor,
   searchPage,
@@ -249,8 +250,7 @@ export const roomMethods = (
   postMessage: (input) =>
     Effect.gen(function* () {
       yield* bodyLimit(input.requestId, "post_message", input.body);
-      const before = yield* host.roomState(input.roomId);
-      yield* host.settle(
+      const sent = yield* host.settle(
         host.rooms.send(
           input.roomId,
           new PostMessage({
@@ -271,8 +271,7 @@ export const roomMethods = (
           editVerb
         )
       );
-      const after = yield* host.rooms.state(input.roomId);
-      const fresh = after.messages.slice(before.messages.length);
+      const fresh = commandMessages(sent.events);
       for (const message of fresh) {
         yield* publish(host, input.roomId, message);
       }
