@@ -45,17 +45,45 @@ export const deliveryOk = (body: string) =>
 export const continuesAt = (body: string, fromSeq: number) =>
   wakeNumber(body, "fromSeq") === fromSeq;
 
-export const liveNames = (seed: string) => {
+const legacyAgent = /^[abhw][0-9a-f]{6}$/u;
+const legacyRoom = /^(?:relay|wake)[0-9a-f]{6}$/u;
+
+const stemOf = (seed: string) => {
   const cleaned = seed.replaceAll(/[^a-f0-9]/giu, "").slice(0, 6);
-  const stem = cleaned.length === 0 ? "run" : cleaned;
+  return cleaned.length === 0 ? "run" : cleaned;
+};
+
+export const liveNames = (seed: string) => {
+  const stem = stemOf(seed);
   return {
-    hook: `w${stem}`,
-    human: `h${stem}`,
-    left: `a${stem}`,
-    relay: `relay${stem}`,
-    right: `b${stem}`,
-    wake: `wake${stem}`,
+    hook: `e2ew${stem}`,
+    human: `e2eh${stem}`,
+    left: `e2ea${stem}`,
+    relay: `e2erelay${stem}`,
+    right: `e2eb${stem}`,
+    wake: `e2ewake${stem}`,
   };
+};
+
+export const liveKeep = (seed: string) => {
+  const names = liveNames(seed);
+  return [
+    names.hook,
+    names.human,
+    names.left,
+    names.relay,
+    names.right,
+    names.wake,
+  ];
+};
+
+export const leftoverName = (name: string, keep: readonly string[]) => {
+  if (keep.includes(name)) {
+    return false;
+  }
+  return (
+    name.startsWith("e2e") || legacyAgent.test(name) || legacyRoom.test(name)
+  );
 };
 
 export const waitUntil = (

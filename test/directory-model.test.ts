@@ -5,10 +5,14 @@ import { AgentId, RoomId } from "../src/domain/ids.ts";
 import { MAX_WAIT_MS, MAX_WAKE_ATTEMPTS } from "../src/domain/wake-policy.ts";
 import {
   AgentRegistered,
+  AgentRetired,
   Directory,
   RegisterAgent,
   RegisterImported,
+  ReleaseRoom,
   ReserveRoom,
+  RetireAgent,
+  RoomReleased,
   RoomReserved,
   RotateToken,
   TokenRotated,
@@ -223,4 +227,35 @@ test("a second directory import adds nobody", async () => {
   expect(
     () => new RegisterImported({ agents: [{}], rooms: [] } as never)
   ).toThrow();
+});
+
+test("retiring an agent and releasing a room can be repeated", async () => {
+  const enrolled = {
+    agentId: leadId,
+    displayName: "Lead",
+    kind: "agent" as const,
+    tokenHash: "hash-1",
+  };
+  const spare = {
+    leadId,
+    name: "spare",
+    roomId: otherRoomId,
+    topic: "x",
+  };
+  await run(
+    story(
+      Story.when(directory, new RegisterAgent(enrolled)),
+      Story.then(directory, new AgentRegistered({ agent: enrolled })),
+      Story.when(directory, new ReserveRoom({ ...spare, memberIds: [leadId] })),
+      Story.then(directory, new RoomReserved(spare)),
+      Story.when(directory, new RetireAgent({ agentId: leadId })),
+      Story.then(directory, new AgentRetired({ agentId: leadId })),
+      Story.when(directory, new RetireAgent({ agentId: leadId })),
+      Story.then(directory),
+      Story.when(directory, new ReleaseRoom({ roomId: otherRoomId })),
+      Story.then(directory, new RoomReleased({ roomId: otherRoomId })),
+      Story.when(directory, new ReleaseRoom({ roomId: otherRoomId })),
+      Story.then(directory)
+    )
+  );
 });

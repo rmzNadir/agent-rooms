@@ -10,7 +10,13 @@ import {
 } from "../domain/ids.ts";
 import { IdentityView, RoomSummary } from "../domain/message.ts";
 import { hashToken, makeSecret } from "../domain/token.ts";
-import { RegisterAgent, ReserveRoom, RotateToken } from "../model/directory.ts";
+import {
+  RegisterAgent,
+  ReleaseRoom,
+  ReserveRoom,
+  RetireAgent,
+  RotateToken,
+} from "../model/directory.ts";
 import { OpenRoom } from "../model/room-commands.ts";
 import type { MemberState } from "../model/room-shape.ts";
 import type { IChat } from "./chat.ts";
@@ -36,7 +42,7 @@ import {
   unrecognized,
 } from "./chat-support.ts";
 import { webhookOf } from "./limits.ts";
-import { CreatedAgent, WebhookRegistration } from "./records.ts";
+import { Ack, CreatedAgent, WebhookRegistration } from "./records.ts";
 
 const leadRequired = (requestId: RequestId) =>
   new LeadRequired({
@@ -72,7 +78,9 @@ export const directoryMethods = (
   | "listAgents"
   | "listRooms"
   | "registerWebhook"
+  | "releaseRoom"
   | "resolve"
+  | "retireAgent"
   | "rotateToken"
 > => ({
   createAgent: (actor, requestId, displayName, kind, webhookUrl) =>
@@ -261,6 +269,17 @@ export const directoryMethods = (
       }
       return new WebhookRegistration({ roomIds, webhookUrl });
     }),
+  releaseRoom: (actor, requestId, roomId) =>
+    Effect.gen(function* () {
+      if (!actor.admin) {
+        return yield* Effect.fail(denied(requestId, "release_room"));
+      }
+      yield* host.settle(
+        host.directory.send(directoryTarget, new ReleaseRoom({ roomId })),
+        contextFor(requestId, roomId, undefined, audit, editVerb)
+      );
+      return new Ack({ ok: true });
+    }),
   resolve: (tokenHash, adminTokenHash, adminName) =>
     Effect.gen(function* () {
       yield* host.legacy.directory();
@@ -288,6 +307,17 @@ export const directoryMethods = (
         displayName: agent.displayName,
         kind: agent.kind,
       });
+    }),
+  retireAgent: (actor, requestId, agentId) =>
+    Effect.gen(function* () {
+      if (!actor.admin) {
+        return yield* Effect.fail(denied(requestId, "retire_agent"));
+      }
+      yield* host.settle(
+        host.directory.send(directoryTarget, new RetireAgent({ agentId })),
+        contextFor(requestId, undefined, undefined, audit, editVerb, agentId)
+      );
+      return new Ack({ ok: true });
     }),
   rotateToken: (actor, requestId, agentId) =>
     Effect.gen(function* () {

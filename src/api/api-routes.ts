@@ -12,6 +12,8 @@ import {
   matchedId,
   PostBody,
   readJson,
+  releasePattern,
+  retirePattern,
   rotatePattern,
   sinceParam,
   skipped,
@@ -283,6 +285,58 @@ const routeWebhook = (
     return skipped;
   });
 
+const routeRetire = (
+  request: HttpServerRequest.HttpServerRequest,
+  path: string
+) =>
+  Effect.gen(function* () {
+    const matched = retirePattern.exec(path);
+    if (request.method === "DELETE" && matched !== null) {
+      const rawAgent = matchedId(matched);
+      return handled(
+        yield* adminOnly((actor, requestId) =>
+          finish(
+            Effect.gen(function* () {
+              const chat = yield* Chat;
+              return yield* chat.retireAgent(
+                actor,
+                requestId,
+                yield* decodeAgent(rawAgent, requestId)
+              );
+            })
+          )
+        )
+      );
+    }
+    return skipped;
+  });
+
+const routeRelease = (
+  request: HttpServerRequest.HttpServerRequest,
+  path: string
+) =>
+  Effect.gen(function* () {
+    const matched = releasePattern.exec(path);
+    if (request.method === "DELETE" && matched !== null) {
+      const rawRoom = matchedId(matched);
+      return handled(
+        yield* adminOnly((actor, requestId) =>
+          finish(
+            Effect.gen(function* () {
+              const chat = yield* Chat;
+              return yield* chat.releaseRoom(
+                actor,
+                requestId,
+                yield* decodeRoom(rawRoom, requestId)
+              );
+            })
+          )
+        )
+      );
+    }
+    return skipped;
+  });
+
 export const routeAdmin = (
   request: HttpServerRequest.HttpServerRequest,
   path: string
@@ -290,6 +344,8 @@ export const routeAdmin = (
   firstHandled([
     routeListAgents(request, path),
     routeCreateAgent(request, path),
+    routeRetire(request, path),
     routeRotate(request, path),
     routeWebhook(request, path),
+    routeRelease(request, path),
   ]);

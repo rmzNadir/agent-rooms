@@ -271,8 +271,8 @@ describe("live checks", () => {
     expect(deliveryOk('{"deliveryId":"nope"}')).toBe(false);
     expect(continuesAt(wake(2, 3), 2)).toBe(true);
     expect(wakeNumber("not json", "toSeq")).toBeUndefined();
-    expect(liveNames("abc123").left).toBe("aabc123");
-    expect(liveNames("!!!").human).toBe("hrun");
+    expect(liveNames("abc123").left).toBe("e2eaabc123");
+    expect(liveNames("!!!").human).toBe("e2ehrun");
   });
 
   test("stops waiting at the count or the deadline", async () => {
@@ -405,6 +405,7 @@ describe("live suite", () => {
       "AGENT_ROOMS_ADMIN_TOKEN",
       "CLOUDFLARE_API_TOKEN",
       "CLOUDFLARE_ACCOUNT_ID",
+      "GITHUB_RUN_ATTEMPT",
       "GITHUB_RUN_ID",
     ];
     const previous = keys.map((key) => readEnv(key));
@@ -412,10 +413,11 @@ describe("live suite", () => {
     writeEnv("AGENT_ROOMS_ADMIN_TOKEN", "admin-token");
     writeEnv("CLOUDFLARE_API_TOKEN", "cf-token");
     writeEnv("CLOUDFLARE_ACCOUNT_ID", "acc");
+    writeEnv("GITHUB_RUN_ATTEMPT", "2");
     writeEnv("GITHUB_RUN_ID", "12");
     const io = liveIo();
     expect(io.base).toBe("https://rooms.example");
-    expect(io.suffix).toBe("12");
+    expect(io.suffix).toBe("212");
     keys.forEach((key, index) => {
       restoreEnv(key, previous[index]);
     });

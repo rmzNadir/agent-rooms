@@ -1,3 +1,4 @@
+import { readEnv } from "../src/boundary/external.ts";
 import { HOP_LIMIT } from "../src/domain/wake-policy.ts";
 import { requireEnv, type TextReply, textRequest } from "./http-text.ts";
 import {
@@ -6,6 +7,7 @@ import {
   cursorAdvanced,
   deliveryOk,
   healthOk,
+  liveKeep,
   liveNames,
   mentionRejected,
   openedAtZero,
@@ -16,6 +18,7 @@ import {
   wakeBodies,
   wakeNumber,
 } from "./live-checks.ts";
+import { sweepLive } from "./live-sweep.ts";
 import {
   type CreatedLogin,
   createdAgent,
@@ -312,7 +315,9 @@ export const wakes = async (
 
 export const runLive = async (io: LiveIo) => {
   let opened = false;
+  const keep = liveKeep(io.suffix);
   try {
+    await sweepLive(io, keep);
     const receiver = await io.up();
     opened = true;
     await healthAndViewer(io);
@@ -324,6 +329,7 @@ export const runLive = async (io: LiveIo) => {
     const hook = await createLogin(io, names.hook, "agent", `${receiver}/wake`);
     await wakes(io, names, left, hook, receiver);
   } finally {
+    await sweepLive(io, []);
     if (opened) {
       await io.down();
     }
@@ -365,6 +371,7 @@ export const liveIo = (): LiveIo => {
   const token = requireEnv("CLOUDFLARE_API_TOKEN");
   const account = requireEnv("CLOUDFLARE_ACCOUNT_ID");
   const runId = requireEnv("GITHUB_RUN_ID");
+  const attempt = readEnv("GITHUB_RUN_ATTEMPT") ?? "1";
   return {
     admin,
     base,
@@ -377,15 +384,21 @@ export const liveIo = (): LiveIo => {
         setTimeout(resolve, ms);
       }),
     socket: openRoomSocket,
-    suffix: runId,
+    suffix: `${attempt}${runId}`,
     up: () => publishReceiver(fetch, token, account, runId),
   };
 };
 
 if (import.meta.main) {
+  const sweeping = process.argv.includes("--sweep");
   try {
-    await runLive(liveIo());
-    console.log("live e2e passed");
+    if (sweeping) {
+      await sweepLive(liveIo(), []);
+      console.log("live sweep passed");
+    } else {
+      await runLive(liveIo());
+      console.log("live e2e passed");
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : "live e2e failed");
     process.exit(1);

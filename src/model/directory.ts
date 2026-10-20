@@ -41,6 +41,14 @@ export class TokenRotated extends Event("TokenRotated", {
   tokenHash: Schema.String,
 }) {}
 
+export class AgentRetired extends Event("AgentRetired", {
+  agentId: AgentId,
+}) {}
+
+export class RoomReleased extends Event("RoomReleased", {
+  roomId: RoomId,
+}) {}
+
 export class RoomReserved extends Event("RoomReserved", {
   leadId: AgentId,
   name: Schema.String,
@@ -86,6 +94,20 @@ export class RotateToken extends Command("RotateToken", {
   target: directoryId,
 }) {}
 
+export class RetireAgent extends Command("RetireAgent", {
+  events: [AgentRetired],
+  input: { agentId: AgentId },
+  rejects: [],
+  target: directoryId,
+}) {}
+
+export class ReleaseRoom extends Command("ReleaseRoom", {
+  events: [RoomReleased],
+  input: { roomId: RoomId },
+  rejects: [],
+  target: directoryId,
+}) {}
+
 export class ReserveRoom extends Command("ReserveRoom", {
   events: [RoomReserved],
   input: {
@@ -102,6 +124,8 @@ export class ReserveRoom extends Command("ReserveRoom", {
 type Registered = InstanceType<typeof RegisterAgent>;
 type Imported = InstanceType<typeof RegisterImported>;
 type Rotated = InstanceType<typeof RotateToken>;
+type Released = InstanceType<typeof ReleaseRoom>;
+type Retired = InstanceType<typeof RetireAgent>;
 type Reserved = InstanceType<typeof ReserveRoom>;
 
 const knownAgent = (state: DirectoryState, agentId: AgentId) =>
@@ -122,7 +146,14 @@ const enrolled = (agent: {
 });
 
 export const Directory = Aggregate("Directory", {
-  commands: [RegisterAgent, RegisterImported, RotateToken, ReserveRoom],
+  commands: [
+    RegisterAgent,
+    RegisterImported,
+    ReleaseRoom,
+    ReserveRoom,
+    RetireAgent,
+    RotateToken,
+  ],
   decide: {
     RegisterAgent: (state: DirectoryState, command: Registered) =>
       knownAgent(state, command.agentId)
@@ -154,6 +185,10 @@ export const Directory = Aggregate("Directory", {
         ),
       ];
     },
+    ReleaseRoom: (state: DirectoryState, command: Released) =>
+      state.rooms.some((room) => room.roomId === command.roomId)
+        ? [new RoomReleased({ roomId: command.roomId })]
+        : [],
     ReserveRoom: (state: DirectoryState, command: Reserved) => {
       const missing = command.memberIds.find(
         (agentId) => !knownAgent(state, agentId)
@@ -175,6 +210,10 @@ export const Directory = Aggregate("Directory", {
             }),
           ];
     },
+    RetireAgent: (state: DirectoryState, command: Retired) =>
+      knownAgent(state, command.agentId)
+        ? [new AgentRetired({ agentId: command.agentId })]
+        : [],
     RotateToken: (state: DirectoryState, command: Rotated) => {
       const current = state.agents.find(
         (agent) => agent.agentId === command.agentId
@@ -199,6 +238,20 @@ export const Directory = Aggregate("Directory", {
     ) => ({
       agents: [...state.agents, event.agent],
       rooms: state.rooms,
+    }),
+    AgentRetired: (
+      state: DirectoryState,
+      event: { readonly agentId: AgentId }
+    ) => ({
+      agents: state.agents.filter((agent) => agent.agentId !== event.agentId),
+      rooms: state.rooms,
+    }),
+    RoomReleased: (
+      state: DirectoryState,
+      event: { readonly roomId: RoomId }
+    ) => ({
+      agents: state.agents,
+      rooms: state.rooms.filter((room) => room.roomId !== event.roomId),
     }),
     RoomReserved: (
       state: DirectoryState,

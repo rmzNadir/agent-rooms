@@ -156,11 +156,21 @@ export interface IChat {
     requestId: RequestId,
     webhookUrl: string | null
   ) => Effect.Effect<WebhookRegistration, ChatError>;
+  readonly releaseRoom: (
+    actor: Actor,
+    requestId: RequestId,
+    roomId: RoomId
+  ) => Effect.Effect<Ack, ChatError>;
   readonly resolve: (
     tokenHash: string,
     adminTokenHash: string,
     adminName: string
   ) => Effect.Effect<IdentityView, ChatError>;
+  readonly retireAgent: (
+    actor: Actor,
+    requestId: RequestId,
+    agentId: AgentId
+  ) => Effect.Effect<Ack, ChatError>;
   readonly rotateToken: (
     actor: Actor,
     requestId: RequestId,

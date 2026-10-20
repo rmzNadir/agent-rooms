@@ -63,7 +63,14 @@ jobs:
           AGENT_ROOMS_TOKEN: ${{ env.AGENT_ROOMS_ADMIN_TOKEN }}
       - name: Live end to end
         if: success()
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bun scripts/live-e2e.ts
+      - name: Sweep leftover end to end agents
+        if: always()
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bun scripts/live-e2e.ts --sweep
       - name: Delete the throwaway receiver
         if: always()
         run: bun scripts/wake-receiver.ts down
