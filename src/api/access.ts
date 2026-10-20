@@ -31,6 +31,8 @@ const bearerPattern = /^Bearer\s+(\S+)$/i;
 export const roomApiPattern =
   /^\/api\/rooms\/(room_[0-9a-f]{24})(?:\/(messages|threads|ws))?$/;
 export const rotatePattern = /^\/admin\/agents\/(agent_[0-9a-f]{24})\/rotate$/;
+export const retirePattern = /^\/admin\/agents\/(agent_[0-9a-f]{24})$/;
+export const releasePattern = /^\/admin\/rooms\/(room_[0-9a-f]{24})$/;
 export const webhookPattern =
   /^\/admin\/agents\/(agent_[0-9a-f]{24})\/webhook$/;
 

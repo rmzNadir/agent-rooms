@@ -16,7 +16,11 @@ import {
   type RoomId,
 } from "../domain/ids.ts";
 import { MemberView } from "../domain/message.ts";
-import type { MemberState, RoomState } from "../model/room-shape.ts";
+import type {
+  MemberState,
+  MessageState,
+  RoomState,
+} from "../model/room-shape.ts";
 import type { RoomSocketApi } from "../runtime/sockets.ts";
 import { type ErrorContext, mapRejection } from "./map-error.ts";
 
@@ -61,8 +65,20 @@ export interface DirectoryClient {
   readonly state: (id: string) => Effect.Effect<DirectorySnapshot>;
 }
 
+interface CommandEvent {
+  readonly _tag: string;
+  readonly message?: MessageState;
+}
+
+interface CommandReceipt {
+  readonly events: readonly CommandEvent[];
+}
+
 export interface RoomClient {
-  readonly send: (id: string, command: object) => Effect.Effect<void, Tagged>;
+  readonly send: (
+    id: string,
+    command: object
+  ) => Effect.Effect<CommandReceipt, Tagged>;
   readonly state: (id: string) => Effect.Effect<RoomState>;
 }
 

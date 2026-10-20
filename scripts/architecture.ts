@@ -13,7 +13,7 @@ const forbidden =
 
 const past = /(?:ed|Left|Taken|Line)$/u;
 const imperative =
-  /^(?:Open|Invite|Join|Leave|Post|Edit|Redact|React|Mark|Record|Expire|Register|Rotate|Reserve)/u;
+  /^(?:Open|Invite|Join|Leave|Post|Edit|Redact|React|Mark|Record|Expire|Register|Release|Reserve|Retire|Rotate)/u;
 
 const filesUnder = (root: string): string[] => {
   const found: string[] = [];

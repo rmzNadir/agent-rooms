@@ -425,6 +425,8 @@ describe("workflows", () => {
       expect(next).toBeGreaterThan(at);
       at = next;
     }
+    expect(deploy).toContain("GITHUB_RUN_ATTEMPT");
+    expect(deploy).toContain("live-e2e.ts --sweep");
     expect(deploy).toContain("workflow_dispatch:");
     expect(deploy).toContain("branches: [main]");
     expect(deploy).toContain("environment: nadir");
