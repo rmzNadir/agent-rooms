@@ -283,6 +283,9 @@ const checkVersion = async (
 export const runConformance = (target: ConformanceTarget) =>
   checkVersion(target, supportedProtocolVersions, 0);
 
+export const conformanceSummary = (versions: readonly string[]) =>
+  `conformance passed ${versions.join(" ")}`;
+
 if (import.meta.main) {
   const url = readEnv("AGENT_ROOMS_URL");
   const token = readEnv("AGENT_ROOMS_TOKEN");
@@ -297,4 +300,5 @@ if (import.meta.main) {
   }
   const mcp = url.endsWith("/mcp") ? url : `${url.replace(/\/$/, "")}/mcp`;
   await runConformance({ token, url: mcp });
+  console.log(conformanceSummary(supportedProtocolVersions));
 }

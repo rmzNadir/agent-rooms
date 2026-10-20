@@ -10,6 +10,7 @@ import {
   requestHeaders,
   requireEnv,
 } from "./http-text.ts";
+import { cfFailure, readPayload } from "./snapshot-diff.ts";
 
 export const RECEIVER_SOURCE = [
   "export class Wakes {",
@@ -46,7 +47,7 @@ export const receiverMetadata = () => ({
   ],
   compatibility_date: "2026-08-31",
   main_module: "receiver.js",
-  migrations: [{ new_classes: ["Wakes"], tag: "v1" }],
+  migrations: { new_sqlite_classes: ["Wakes"], new_tag: "v1" },
 });
 
 export const receiverName = (runId: string) => `agent-rooms-receiver-${runId}`;
@@ -88,7 +89,8 @@ export const uploadScript = async (
     }
   );
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`receiver upload failed ${response.status}`);
+    const detail = cfFailure(readPayload(await response.text()));
+    throw new Error(`receiver upload failed ${response.status} ${detail}`);
   }
 };
 

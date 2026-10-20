@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { conformanceSummary } from "../scripts/conformance.ts";
 import type { FetchLike } from "../scripts/http-text.ts";
 import {
   continuesAt,
@@ -354,7 +355,9 @@ describe("live suite", () => {
     const metadata = form.get("metadata");
     expect(metadata).toBeInstanceOf(File);
     if (metadata instanceof File) {
-      expect(await metadata.text()).toContain('"tag":"v1"');
+      expect(await metadata.text()).toContain(
+        '"migrations":{"new_sqlite_classes":["Wakes"],"new_tag":"v1"}'
+      );
     }
     const fetchLike: FetchLike = () =>
       Promise.resolve({
@@ -363,7 +366,37 @@ describe("live suite", () => {
       });
     await expect(
       uploadScript(fetchLike, "token", "acc", "receiver")
-    ).rejects.toThrow("receiver upload failed 500");
+    ).rejects.toThrow("receiver upload failed 500 cloudflare request failed");
+  });
+
+  test("upload names the cloudflare error and skips the body", async () => {
+    const fetchLike: FetchLike = () =>
+      Promise.resolve({
+        status: 400,
+        text: () =>
+          Promise.resolve(
+            '{"errors":[{"code":10021,"message":"migrations must be an object"}],"SECRET_BODY":"nope"}'
+          ),
+      });
+    const failed = await uploadScript(
+      fetchLike,
+      "token",
+      "acc",
+      "receiver"
+    ).then(
+      () => "",
+      (error: unknown) => (error instanceof Error ? error.message : "")
+    );
+    expect(failed).toBe(
+      "receiver upload failed 400 10021 migrations must be an object"
+    );
+    expect(failed).not.toContain("SECRET_BODY");
+  });
+
+  test("conformance names the versions that passed", () => {
+    expect(conformanceSummary(["2026-07-28", "2025-06-18"])).toBe(
+      "conformance passed 2026-07-28 2025-06-18"
+    );
   });
 
   test("liveIo uses the worker url without a trailing slash", () => {
