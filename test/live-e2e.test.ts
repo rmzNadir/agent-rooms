@@ -205,6 +205,35 @@ const toolBody = (body: string | undefined, hook: string, state: LiveState) => {
   return readTool(body, hook);
 };
 
+const skillRead = (body: string | undefined) => {
+  if (
+    has(body, '"method":"resources/read"') ||
+    has(body, '"method":"skills/get"')
+  ) {
+    return sent(
+      '{"result":{"text":"name: agent-rooms","uri":"skill://agent-rooms/SKILL.md"}}'
+    );
+  }
+  return null;
+};
+
+const skillReply = (body: string | undefined) => {
+  if (has(body, '"method":"initialize"')) {
+    return sent(
+      '{"result":{"capabilities":{"resources":{}},"instructions":"skill://agent-rooms/SKILL.md"}}'
+    );
+  }
+  return skillRead(body);
+};
+
+const answered = (body: string | undefined, hook: string, state: LiveState) => {
+  const tool = toolBody(body, hook, state);
+  if (tool !== undefined) {
+    return sent(tool);
+  }
+  return skillReply(body);
+};
+
 const scripted = (closeCode: number) => {
   const names = liveNames("abc123");
   const state: LiveState = { agents: 0, hops: 0, wakePosts: 0 };
@@ -219,11 +248,7 @@ const scripted = (closeCode: number) => {
     if (made !== undefined) {
       return made;
     }
-    const tool = toolBody(body, names.hook, state);
-    if (tool !== undefined) {
-      return sent(tool);
-    }
-    return sent(rpc('{"ok":true}'));
+    return answered(body, names.hook, state) ?? sent(rpc('{"ok":true}'));
   };
   const io: MutableLive = {
     admin: "admin-token",
