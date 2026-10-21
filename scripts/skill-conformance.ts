@@ -2,6 +2,7 @@ import type { Client } from "@modelcontextprotocol/client";
 import type { Json } from "effect/Schema";
 import { at, isJsonObject, parseJson } from "../src/boundary/external.ts";
 import { skillMarkdown } from "../src/mcp/guide.ts";
+import { singleSseData } from "../src/mcp/handler.ts";
 import { protocolVersionMetaKey } from "../src/mcp/protocol.ts";
 import { skillUri } from "../src/mcp/skill-catalog.ts";
 
@@ -36,8 +37,9 @@ export const postJson = async (
 
 export const readJson = async (response: Response) => {
   const text = await response.text();
+  const payload = singleSseData(text) ?? text;
   try {
-    return parseJson(text);
+    return parseJson(payload);
   } catch (error) {
     throw new Error(text, { cause: error });
   }

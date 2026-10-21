@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Context, Effect, Schema } from "effect";
 import type { Json } from "effect/Schema";
+import { readJson } from "../scripts/skill-conformance.ts";
 import { Chat } from "../src/app/chat.ts";
 import { at, isJsonObject, parseJson } from "../src/boundary/external.ts";
 import { Actor } from "../src/domain/actor.ts";
@@ -282,6 +283,13 @@ const manifestOf = async (
 };
 
 describe("mcp skills", () => {
+  test("a streamed skill response is one json body", async () => {
+    const body =
+      'event: message\ndata: {"result":{"uri":"skill://agent-rooms/SKILL.md"}}\n\n';
+    const framed = await readJson(new Response(body));
+    expect(at(resultOf(framed), "uri")).toBe(skillUri);
+  });
+
   test("a 2025 client reads the skill as a resource", async () => {
     const initialized = resultOf(
       await parsed(
