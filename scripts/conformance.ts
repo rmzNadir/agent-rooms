@@ -4,18 +4,14 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import type { Json } from "effect/Schema";
-import {
-  at,
-  isJsonObject,
-  parseJson,
-  readEnv,
-} from "../src/boundary/external.ts";
-import { agentInstructions } from "../src/mcp/guide.ts";
+import { at, isJsonObject, readEnv } from "../src/boundary/external.ts";
 import {
   modernProtocolVersions,
   type SupportedProtocolVersion,
   supportedProtocolVersions,
 } from "../src/mcp/protocol.ts";
+import { serverInstructions, skillUri } from "../src/mcp/skill-catalog.ts";
+import { assertSkills, postJson, readJson } from "./skill-conformance.ts";
 
 export interface ConformanceTarget {
   readonly token: string;
@@ -47,7 +43,7 @@ const assertDiscover = (client: Client, version: SupportedProtocolVersion) => {
   if (!sameList(supported, modernProtocolVersions)) {
     fail(version, `supportedVersions ${supported.join(", ")}`);
   }
-  if (instructions !== agentInstructions) {
+  if (instructions !== serverInstructions) {
     fail(version, "discover instructions differ from the guide");
   }
 };
@@ -70,6 +66,10 @@ const assertTools = async (
   if (!rendered.includes('"displayName"')) {
     fail(version, `whoami returned ${rendered}`);
   }
+  const resources = await client.listResources();
+  if (!resources.resources.some((resource) => resource.uri === skillUri)) {
+    fail(version, "resources/list omitted the skill");
+  }
 };
 
 const rethrowSession = (error: Error | string, version: string) => {
@@ -81,15 +81,17 @@ const rethrowSession = (error: Error | string, version: string) => {
 
 const exercise = async (
   client: Client,
+  target: ConformanceTarget,
   modern: boolean,
   version: SupportedProtocolVersion
 ) => {
   if (modern) {
     assertDiscover(client, version);
-  } else if (client.getInstructions() !== agentInstructions) {
+  } else if (client.getInstructions() !== serverInstructions) {
     fail(version, "initialize instructions differ from the guide");
   }
   await assertTools(client, version);
+  await assertSkills(client, target, modern, version);
 };
 
 const session = async (
@@ -108,40 +110,11 @@ const session = async (
   });
   try {
     await client.connect(transport);
-    await exercise(client, modern, version);
+    await exercise(client, target, modern, version);
   } catch (error) {
     rethrowSession(error instanceof Error ? error : String(error), version);
   } finally {
     await client.close();
-  }
-};
-
-const postJson = async (
-  url: string,
-  headers: Record<string, string>,
-  body: Json
-) => {
-  const init = {
-    body: JSON.stringify(body),
-    headers: { connection: "close", ...headers },
-    method: "POST",
-  };
-  try {
-    return await fetch(url, init);
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes("ECONNRESET"))) {
-      throw error;
-    }
-    return await fetch(url, init);
-  }
-};
-
-const readJson = async (response: Response) => {
-  const text = await response.text();
-  try {
-    return parseJson(text);
-  } catch (error) {
-    throw new Error(text, { cause: error });
   }
 };
 
@@ -168,6 +141,22 @@ const expectUnauthorized = async (
   );
   if (response.status !== 401) {
     fail(version, `missing token returned ${response.status}`);
+  }
+  const listed = await postJson(
+    target.url,
+    {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    {
+      id: 2,
+      jsonrpc: "2.0",
+      method: "skills/list",
+      params: {},
+    }
+  );
+  if (listed.status !== 401) {
+    fail(version, `skills/list missing token returned ${listed.status}`);
   }
 };
 

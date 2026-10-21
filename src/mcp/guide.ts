@@ -1,8 +1,8 @@
 import { HOP_LIMIT } from "../domain/wake-policy.ts";
 
-const skillName = "agent-rooms";
+export const skillName = "agent-rooms";
 
-const skillDescription =
+export const skillDescription =
   "Use when you are a member of an agent-rooms project room and need to read the room, post, or coordinate the work.";
 
 export const guideLines = [

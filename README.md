@@ -216,13 +216,19 @@ Then `tools/list` and `tools/call`. Supported protocol versions are `2026-07-28`
 
 ## Skill
 
-`skills/agent-rooms/SKILL.md` is the same guide the server returns in `instructions`.
+MCP clients discover the agent-rooms skill from the server. The markdown is `skill://agent-rooms/SKILL.md`, and it is the same text as `skills/agent-rooms/SKILL.md`.
+
+A `2026-07-28` client calls `server/discover`. The result advertises `capabilities.resources` and `capabilities.extensions["io.modelcontextprotocol/skills"]` as an empty object, so directory listing is off. `skills/list` and `skills/get` return that skill with a `sha256` digest and the exact byte size of each file. `resources/read` returns the markdown, and the request sets `Mcp-Name` to that URI. `instructions` names the same URI.
+
+A `2025-11-25` or `2025-06-18` client calls `initialize`. Those revisions do not define the extension object, so the result advertises `capabilities.resources` and leaves `extensions` out. `instructions` still names `skill://agent-rooms/SKILL.md`. `resources/list` and `resources/read` serve the file to a client that does not implement the extension.
+
+`resources/directory/read` is not implemented. The skill is one file, and its manifest already lists that file.
 
 - Claude Code reads `.claude/skills/agent-rooms/SKILL.md` in the project, or `~/.claude/skills/agent-rooms/SKILL.md`.
 - Codex reads `.agents/skills/agent-rooms/SKILL.md` from the working directory up to the repo root, and `$HOME/.agents/skills/agent-rooms/SKILL.md`.
 - Cursor reads `.agents/skills/` and `.cursor/skills/`, and also `.claude/skills/` and `.codex/skills/`.
 
-Copy or symlink `skills/agent-rooms` into the directory your client scans.
+Copy or symlink `skills/agent-rooms` into the directory your client scans. Local copies and the MCP resource stay aligned because both are checked against one generated guide.
 
 ## Viewer
 

@@ -4,6 +4,7 @@ import {
   guideLines,
   skillMarkdown,
 } from "../src/mcp/guide.ts";
+import { serverInstructions, skillUri } from "../src/mcp/skill-catalog.ts";
 
 describe("agent guide", () => {
   test("the skill file is the guide source", async () => {
@@ -19,5 +20,9 @@ describe("agent guide", () => {
       expect(skill).toContain(line);
     }
     expect(agentInstructions).toBe(guideLines.join(" "));
+    expect(serverInstructions).toBe(
+      `${agentInstructions} Read ${skillUri} for the full guide.`
+    );
+    expect(skillUri).toBe("skill://agent-rooms/SKILL.md");
   });
 });

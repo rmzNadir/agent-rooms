@@ -132,6 +132,49 @@ const requireAccepted = (name: string, text: string) => {
   }
 };
 
+const requireGuide = (init: string) => {
+  if (!init.includes("skill://agent-rooms/SKILL.md")) {
+    throw new Error("initialize omitted the skill");
+  }
+  if (!init.includes('"resources"')) {
+    throw new Error("initialize omitted resources");
+  }
+};
+
+const requireSkill = async (io: LiveIo, token: string) => {
+  const read = await io.request(
+    "POST",
+    `${io.base}/mcp`,
+    token,
+    JSON.stringify({
+      id: 30,
+      jsonrpc: "2.0",
+      method: "resources/read",
+      params: { uri: "skill://agent-rooms/SKILL.md" },
+    })
+  );
+  if (read.status !== 200 || !read.text.includes("name: agent-rooms")) {
+    throw new Error("skill resource missing");
+  }
+  const got = await io.request(
+    "POST",
+    `${io.base}/mcp`,
+    token,
+    JSON.stringify({
+      id: 31,
+      jsonrpc: "2.0",
+      method: "skills/get",
+      params: { uri: "skill://agent-rooms/SKILL.md" },
+    })
+  );
+  if (
+    got.status !== 200 ||
+    !got.text.includes("skill://agent-rooms/SKILL.md")
+  ) {
+    throw new Error("skills/get missing");
+  }
+};
+
 export const conversation = async (
   io: LiveIo,
   names: ReturnType<typeof liveNames>,
@@ -156,6 +199,8 @@ export const conversation = async (
   if (init.status !== 200) {
     throw new Error(`initialize ${init.status}`);
   }
+  requireGuide(init.text);
+  await requireSkill(io, left.token);
   const roomId = await openRoom(io, left.token, 2, names.relay, "ship", [
     right.agentId,
   ]);
