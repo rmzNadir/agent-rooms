@@ -13,12 +13,16 @@ import type { Chat } from "../app/chat.ts";
 import type { Actor } from "../domain/actor.ts";
 import { makeRequestId } from "../domain/ids.ts";
 import { callTool, toolErr } from "./call-tool.ts";
-import { agentInstructions } from "./guide.ts";
 import {
   supportedProtocolVersions,
   unsupportedProtocolVersionBody,
   versionRejection,
 } from "./protocol.ts";
+import {
+  registerSkills,
+  serverInstructions,
+  skillCache,
+} from "./skill-catalog.ts";
 import { tools } from "./tool-list.ts";
 
 const streamAccept = "application/json, text/event-stream";
@@ -177,12 +181,34 @@ export const mcpAuth = (agentId: string) => ({
 
 export const mcpHandlerOptions = () => ({ legacy: "stateless" as const });
 
-const serverFor = (actor: Actor, services: Context.Context<Chat>) => {
+const serverCapabilities = (modern: boolean) => {
+  const capabilities = {
+    resources: { listChanged: false },
+    tools: { listChanged: false },
+  };
+  if (!modern) {
+    return capabilities;
+  }
+  return {
+    ...capabilities,
+    extensions: { "io.modelcontextprotocol/skills": {} },
+  };
+};
+
+const serverFor = (
+  actor: Actor,
+  services: Context.Context<Chat>,
+  modern: boolean
+) => {
   const server = new McpServer(
     { name: "agent-rooms", version: "0.1.0" },
     {
-      capabilities: { tools: { listChanged: false } },
-      instructions: agentInstructions,
+      cacheHints: {
+        "resources/list": skillCache,
+        "resources/read": skillCache,
+      },
+      capabilities: serverCapabilities(modern),
+      instructions: serverInstructions,
       supportedProtocolVersions: [...supportedProtocolVersions],
     }
   );
@@ -209,6 +235,7 @@ const serverFor = (actor: Actor, services: Context.Context<Chat>) => {
       }
     );
   }
+  registerSkills(server, modern);
   return server;
 };
 
@@ -259,7 +286,7 @@ export const serveMcp = async (
     );
   }
   const handler = createMcpHandler(
-    () => serverFor(actor, services),
+    (ctx) => serverFor(actor, services, ctx.era === "modern"),
     mcpHandlerOptions()
   );
   const response = await handler.fetch(forwarded, handlerInit(actor.agentId));
