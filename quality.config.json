@@ -69,6 +69,7 @@
     "test/cf-client.test.ts",
     "test/snapshot-diff.test.ts",
     "test/deploy-guard.test.ts",
+    "test/deploy-profile.test.ts",
     "test/live-e2e.test.ts",
     "test/live-sweep.test.ts",
     "test/hop-race.test.ts",

@@ -7,6 +7,15 @@ import {
   retainPrefix,
   rollBack,
 } from "./cf-client.ts";
+import {
+  type Env,
+  envFrom,
+  envValue,
+  need,
+  tokenEnvName,
+  type VerifyAgent,
+  verifyAgentsFromEnv,
+} from "./deploy-profile.ts";
 import type { AppCall, CfCall } from "./http-text.ts";
 import { appFetch, cfFetch } from "./http-text.ts";
 import { parseBackup } from "./room-parse.ts";
@@ -17,10 +26,6 @@ import {
   compareBackups,
   scriptNameFromUrl,
 } from "./snapshot-diff.ts";
-
-export interface Env {
-  readonly [key: string]: string | undefined;
-}
 
 export interface GuardIo {
   readonly call: CfCall;
@@ -36,50 +41,33 @@ export interface GuardIo {
 export interface GuardConfig {
   readonly account: string | undefined;
   readonly admin: string | undefined;
-  readonly brobert: string | undefined;
-  readonly bucket: string;
-  readonly codex: string | undefined;
+  readonly bucket: string | undefined;
   readonly file: string | undefined;
   readonly prefix: string | undefined;
   readonly sha: string | undefined;
   readonly url: string | undefined;
+  readonly verifyAgents: readonly VerifyAgent[];
   readonly versionFile: string | undefined;
   readonly worker: string | undefined;
 }
 
-const envValue = (env: Env, key: string) => {
-  const value = env[key];
-  return value === undefined || value.length === 0 ? undefined : value;
-};
-
-const need = (value: string | undefined, name: string) => {
-  if (value === undefined) {
-    throw new Error(`missing ${name}`);
-  }
-  return value;
-};
-
 export const workerScript = (url: string, override: string | undefined) => {
-  if (override !== undefined) {
-    return override;
+  const fromUrl = url.length === 0 ? undefined : scriptNameFromUrl(url);
+  if (fromUrl !== undefined) {
+    return fromUrl;
   }
-  if (url.length === 0) {
-    return;
-  }
-  return scriptNameFromUrl(url);
+  return override;
 };
 
 export const configFromEnv = (env: Env): GuardConfig => ({
   account: envValue(env, "CLOUDFLARE_ACCOUNT_ID"),
   admin: envValue(env, "AGENT_ROOMS_ADMIN_TOKEN"),
-  brobert: envValue(env, "AGENT_ROOMS_BROBERT_TOKEN"),
-  bucket:
-    envValue(env, "AGENT_ROOMS_BACKUP_BUCKET") ?? "agent-rooms-nadir-backups",
-  codex: envValue(env, "AGENT_ROOMS_CODEX_TOKEN"),
+  bucket: envValue(env, "AGENT_ROOMS_BACKUP_BUCKET"),
   file: envValue(env, "AGENT_ROOMS_BACKUP_FILE"),
   prefix: envValue(env, "AGENT_ROOMS_BACKUP_PREFIX"),
   sha: envValue(env, "GITHUB_SHA"),
   url: envValue(env, "AGENT_ROOMS_URL"),
+  verifyAgents: verifyAgentsFromEnv(env),
   versionFile: envValue(env, "AGENT_ROOMS_VERSION_FILE"),
   worker: workerScript(
     envValue(env, "AGENT_ROOMS_URL") ?? "",
@@ -109,17 +97,18 @@ export const runBackup = async (config: GuardConfig, io: GuardIo) => {
   if (url.length === 0) {
     throw new Error("missing AGENT_ROOMS_URL");
   }
-  await ensureBucket(io.call, account, config.bucket);
+  const bucket = need(config.bucket, "AGENT_ROOMS_BACKUP_BUCKET");
+  await ensureBucket(io.call, account, bucket);
   const takenAt = io.nowIso();
   const backup = await readBackup(io.http, admin, takenAt);
   const body = JSON.stringify(backup);
   const key = backupKey(prefix, takenAt, sha);
-  await putObject(io.call, account, config.bucket, key, body);
+  await putObject(io.call, account, bucket, key, body);
   io.writeFile(file, body);
   const removed = await retainPrefix(
     io.call,
     account,
-    config.bucket,
+    bucket,
     `${prefix}/`,
     io.nowMs()
   );
@@ -135,10 +124,16 @@ export const runPin = async (config: GuardConfig, io: GuardIo) => {
   io.log(version === undefined ? "pinned none" : `pinned ${version}`);
 };
 
+const agentProblems = (agents: readonly VerifyAgent[], http: AppCall) =>
+  Promise.all(
+    agents.map(async (agent) => {
+      const token = need(agent.token, tokenEnvName(agent.label));
+      return await authProblems(http, token, agent.label);
+    })
+  ).then((groups) => groups.flat());
+
 export const runVerify = async (config: GuardConfig, io: GuardIo) => {
   const admin = need(config.admin, "AGENT_ROOMS_ADMIN_TOKEN");
-  const brobert = need(config.brobert, "AGENT_ROOMS_BROBERT_TOKEN");
-  const codex = need(config.codex, "AGENT_ROOMS_CODEX_TOKEN");
   need(config.url, "AGENT_ROOMS_URL");
   const file = need(config.file, "AGENT_ROOMS_BACKUP_FILE");
   const before = parseBackup(io.readFile(file));
@@ -146,8 +141,7 @@ export const runVerify = async (config: GuardConfig, io: GuardIo) => {
   const lines = [
     ...compareBackups(before, after),
     ...(await authProblems(io.http, admin, "admin")),
-    ...(await authProblems(io.http, brobert, "brobert")),
-    ...(await authProblems(io.http, codex, "codex")),
+    ...(await agentProblems(config.verifyAgents, io.http)),
   ];
   if (lines.length > 0) {
     for (const line of lines) {
@@ -194,27 +188,7 @@ export const execute = async (
   throw new Error("usage: backup | pin | verify | rollback");
 };
 
-const envRecord = (): Env => {
-  const keys = [
-    "AGENT_ROOMS_ADMIN_TOKEN",
-    "AGENT_ROOMS_BACKUP_BUCKET",
-    "AGENT_ROOMS_BACKUP_FILE",
-    "AGENT_ROOMS_BACKUP_PREFIX",
-    "AGENT_ROOMS_BROBERT_TOKEN",
-    "AGENT_ROOMS_CODEX_TOKEN",
-    "AGENT_ROOMS_URL",
-    "AGENT_ROOMS_VERSION_FILE",
-    "AGENT_ROOMS_WORKER_NAME",
-    "CLOUDFLARE_ACCOUNT_ID",
-    "CLOUDFLARE_API_TOKEN",
-    "GITHUB_SHA",
-  ];
-  const env: { [key: string]: string | undefined } = {};
-  for (const key of keys) {
-    env[key] = readEnv(key);
-  }
-  return env;
-};
+const envRecord = (): Env => envFrom(readEnv);
 
 const ioFromEnv = (env: Env): GuardIo => ({
   call: cfFetch(

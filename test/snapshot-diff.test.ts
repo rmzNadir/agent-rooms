@@ -136,6 +136,11 @@ describe("backup keys", () => {
     ];
     expect(keyTime("nightly/2026-09-01.json")).toBe(day);
     expect(keyTime("deploy/2026-09-01T010000Z-abc.json")).toBe(day);
+    const written = backupKey("deploy", "2026-09-01T14:56:00.000Z", "abc");
+    expect(keyTime(written)).toBe(day);
+    expect(expiredKeys([written], day + 30 * 86_400_000 + 1, 30)).toEqual([
+      written,
+    ]);
     expect(keyTime("notes/keep")).toBeUndefined();
     expect(expiredKeys(keys, day + 30 * 86_400_000, 30)).toEqual([]);
     expect(expiredKeys(keys, day + 30 * 86_400_000 + 1, 30)).toEqual([

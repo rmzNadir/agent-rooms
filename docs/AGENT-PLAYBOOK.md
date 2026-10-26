@@ -9,16 +9,16 @@ This file is research. The rules for this repository are `AGENTS.md`,
 
 ## This repository
 
-Stage `nadir` deploys only from the GitHub Actions workflow `Deploy nadir`.
-Secrets live in the GitHub Environment `nadir`. Nothing for that stage is
-kept on a local machine. Room backups go to the private R2 bucket
-`agent-rooms-nadir-backups`. The procedure is `docs/DEPLOY-NOTES.md`.
+Production deploys from the GitHub Actions workflow `Deploy`. The stage,
+GitHub Environment, and backup bucket are repository variables. Secrets live
+in that GitHub Environment. Nothing for that stage is kept on a local
+machine. The procedure is `docs/DEPLOY-NOTES.md`.
 
 This repo is one Bun package. `alchemy.run.ts` is the only infrastructure
 entry. `src/model` is the domain. `src/domain` holds the shared schemas.
 `src/api` is the MCP and viewer. Tests live under `test/`. `bun run check`
 is the done gate. Integration tests use a local Alchemy stage (`dev: true`).
-That local result is the integration gate. It does not deploy stage `nadir`.
+That local result is the integration gate. It does not deploy the production stage.
 
 Before writing code against Effect or Alchemy, read the installed source
 under `node_modules/effect` and `node_modules/alchemy`.
@@ -35,9 +35,9 @@ to project, `docs/coding-standards.md` and `docs/errors.md`, and keeps
 
 His loop was to deploy to Cloudflare with Alchemy, read the traces, and fix
 (<https://x.com/dillon_mulroy/status/2108684370626195819>). This repository
-does not deploy stage `nadir` from a laptop to get that loop. A stage
-`nadir` deploy runs in GitHub Actions. Traces for that deployed Worker are
-still the signal when a run has completed.
+does not deploy the production stage from a laptop to get that loop. That
+deploy runs in GitHub Actions. Traces for that deployed Worker are still the
+signal when a run has completed.
 
 ## 1. Source layout (cf-workflow-pool)
 
@@ -70,8 +70,8 @@ The pattern from cf-workflow-pool:
 3. Read `docs/coding-standards.md` before writing or reviewing code. Read
    `docs/errors.md` before changing typed errors.
 4. What counts as evidence. In this repository, `bun run check` and the
-   local integration stage are the gates. Stage `nadir` is deployed only by
-   the `Deploy nadir` workflow.
+   local integration stage are the gates. The production stage is deployed
+   only by the `Deploy` workflow.
 5. Traces for a deployed stage, when one exists.
 
 This repository's short file is `AGENTS.md` at the root. An older local
@@ -99,9 +99,9 @@ tutorial. The community Effect docs MCP was not verified in that pass.
    including mutation of `src/**/*.ts`.
 2. `bun run test:conformance` and `bun run test:integration` deploy a local
    Alchemy stage. Those results are the integration evidence. They do not
-   deploy stage `nadir`.
+   deploy the production stage.
 3. Bound every retry. The wake policy stops after 8 attempts.
-4. When a GitHub Actions deploy of stage `nadir` has run, debug that stage
+4. When a GitHub Actions deploy of the production stage has run, debug that stage
    from its logs. Do not guess.
 
 ## 5. Effect style
@@ -141,8 +141,9 @@ used, are built per invocation.
 Alchemy's own docs also show a schemaless method bridge. This repository
 uses the Domain host in `alchemy.run.ts`, not a hand-written RPC client.
 
-Stage `nadir` is the shared stage. It is not destroyed from a laptop, and
-its secrets are not written to an env file on disk.
+The production stage named by `AGENT_ROOMS_STAGE` is the shared stage. It is
+not destroyed from a laptop, and its secrets are not written to an env file
+on disk.
 
 ## 7. Narrow skills
 
