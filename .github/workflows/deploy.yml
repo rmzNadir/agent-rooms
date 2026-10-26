@@ -1,4 +1,4 @@
-name: Deploy nadir
+name: Deploy
 
 on:
   workflow_dispatch:
@@ -9,21 +9,42 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent-rooms-nadir
+  group: agent-rooms-${{ vars.AGENT_ROOMS_STAGE }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  profile:
     runs-on: ubuntu-latest
-    environment: nadir
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Read the deploy profile
+        run: bun scripts/deploy-profile.ts
+        env:
+          AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
+          AGENT_ROOMS_GITHUB_ENVIRONMENT: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
+          AGENT_ROOMS_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
+          AGENT_ROOMS_VERIFY_AGENTS: ${{ vars.AGENT_ROOMS_VERIFY_AGENTS }}
+
+  deploy:
+    needs: profile
+    runs-on: ubuntu-latest
+    environment: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
     env:
-      ALCHEMY_STAGE: nadir
+      ALCHEMY_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
       AGENT_ROOMS_ADMIN_NAME: human
       AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
-      AGENT_ROOMS_BACKUP_BUCKET: agent-rooms-nadir-backups
+      AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
       AGENT_ROOMS_BROBERT_TOKEN: ${{ secrets.AGENT_ROOMS_BROBERT_TOKEN }}
       AGENT_ROOMS_CODEX_TOKEN: ${{ secrets.AGENT_ROOMS_CODEX_TOKEN }}
+      AGENT_ROOMS_GITHUB_ENVIRONMENT: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
+      AGENT_ROOMS_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
       AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
+      AGENT_ROOMS_VERIFY_AGENTS: ${{ vars.AGENT_ROOMS_VERIFY_AGENTS }}
+      AGENT_ROOMS_VERIFY_TOKENS: ${{ secrets.AGENT_ROOMS_VERIFY_TOKENS }}
       AGENT_ROOMS_WORKER_NAME: ${{ secrets.AGENT_ROOMS_WORKER_NAME }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -38,36 +59,39 @@ jobs:
           echo "AGENT_ROOMS_BACKUP_FILE=$RUNNER_TEMP/rooms-backup.json" >> "$GITHUB_ENV"
           echo "AGENT_ROOMS_VERSION_FILE=$RUNNER_TEMP/previous-version" >> "$GITHUB_ENV"
       - name: Back up every room
+        if: env.AGENT_ROOMS_URL != ''
         run: bun scripts/deploy-guard.ts backup
         env:
           AGENT_ROOMS_BACKUP_PREFIX: deploy
       - name: Pin the live Worker version
         id: pin
+        if: env.AGENT_ROOMS_URL != ''
         run: bun scripts/deploy-guard.ts pin
-      - name: Deploy stage nadir
+      - name: Deploy the stage
         id: deploy
-        run: bun run deploy -- --yes --stage nadir
+        run: bun run deploy -- --yes --stage "$ALCHEMY_STAGE"
       - name: Verify rooms and tokens
         id: verify
+        if: success() && env.AGENT_ROOMS_URL != ''
         run: bun scripts/deploy-guard.ts verify
       # A Worker rollback cannot cross a Durable Object migration. Version 4
       # added 8 Durable Object classes. When Cloudflare rejects the rollback,
       # restore the room data from the private R2 backup.
       - name: Roll back the previous Worker version
-        if: failure() && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure')
+        if: failure() && (steps.pin.outcome == 'success' && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure'))
         run: bun scripts/deploy-guard.ts rollback
       - name: Conformance
-        if: success()
+        if: success() && env.AGENT_ROOMS_URL != ''
         run: bun scripts/conformance.ts
         env:
           AGENT_ROOMS_TOKEN: ${{ env.AGENT_ROOMS_ADMIN_TOKEN }}
       - name: Live end to end
-        if: success()
+        if: success() && env.AGENT_ROOMS_URL != ''
         env:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bun scripts/live-e2e.ts
       - name: Sweep leftover end to end agents
-        if: always()
+        if: always() && env.AGENT_ROOMS_URL != ''
         env:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bun scripts/live-e2e.ts --sweep

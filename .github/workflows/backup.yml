@@ -9,16 +9,32 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent-rooms-nadir
+  group: agent-rooms-${{ vars.AGENT_ROOMS_STAGE }}
   cancel-in-progress: false
 
 jobs:
-  backup:
+  profile:
     runs-on: ubuntu-latest
-    environment: nadir
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Read the deploy profile
+        run: bun scripts/deploy-profile.ts
+        env:
+          AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
+          AGENT_ROOMS_GITHUB_ENVIRONMENT: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
+          AGENT_ROOMS_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
+
+  backup:
+    needs: profile
+    runs-on: ubuntu-latest
+    environment: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
     env:
       AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
-      AGENT_ROOMS_BACKUP_BUCKET: agent-rooms-nadir-backups
+      AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
       AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
