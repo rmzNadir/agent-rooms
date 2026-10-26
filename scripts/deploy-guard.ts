@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { readEnv } from "../src/boundary/external.ts";
+import { scriptNameFromUrl } from "../src/runtime/worker-surface.ts";
 import {
   ensureBucket,
   pinnedVersion,
@@ -20,12 +21,7 @@ import type { AppCall, CfCall } from "./http-text.ts";
 import { appFetch, cfFetch } from "./http-text.ts";
 import { parseBackup } from "./room-parse.ts";
 import { authProblems, readBackup } from "./room-read.ts";
-import {
-  backupKey,
-  backupPrefix,
-  compareBackups,
-  scriptNameFromUrl,
-} from "./snapshot-diff.ts";
+import { backupKey, backupPrefix, compareBackups } from "./snapshot-diff.ts";
 
 export interface GuardIo {
   readonly call: CfCall;

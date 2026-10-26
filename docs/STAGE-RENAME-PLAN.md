@@ -76,7 +76,7 @@ The admin bearer is also a Worker secret, `AGENT_ROOMS_ADMIN_TOKEN`, checked aga
 
 ## 3. Optional custom domain
 
-Adopting the Worker keeps `nadir` in the `workers.dev` host. A custom domain is how clients get a stable URL. The same mechanism is how any other account puts agent-rooms on a hostname they already have. This section is the design for that follow-up. It is not in the code yet.
+Adopting the Worker keeps `nadir` in the `workers.dev` host. A custom domain is how clients get a stable URL. The same mechanism is how any other account puts agent-rooms on a hostname they already have. This revision pins the script name from `AGENT_ROOMS_URL` on a live deploy, passes `domain` when `AGENT_ROOMS_DOMAIN` is set, and adds the read-only workflow `Plan prod adopt`. The variable stays unset until the adopt plan has been accepted. `alchemy dev` and `AGENT_ROOMS_LOCAL_STATE` leave the script name unset. Durable Object class names stay the logical names, so they do not change with the stage.
 
 ### The Alchemy API
 

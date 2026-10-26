@@ -1,0 +1,39 @@
+name: Plan prod adopt
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/stage-rename-plan-8d00
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-rooms-plan-prod
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
+      AGENT_ROOMS_DOMAIN: ${{ vars.AGENT_ROOMS_DOMAIN }}
+      AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
+      AGENT_ROOMS_WORKER_NAME: ${{ secrets.AGENT_ROOMS_WORKER_NAME }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - name: Plan stage prod with adopt
+        run: |
+          set -o pipefail
+          bunx alchemy plan --stage prod --adopt --no-input --env-file /dev/null 2>&1 | bun scripts/show-plan.ts
+      - name: Read the pinned script classes
+        if: always()
+        run: bun scripts/list-script-classes.ts

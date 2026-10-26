@@ -1,4 +1,5 @@
 import { readEnv } from "../src/boundary/external.ts";
+import { domainProblem } from "../src/runtime/worker-surface.ts";
 
 export interface Env {
   readonly [key: string]: string | undefined;
@@ -26,6 +27,7 @@ const fixedKeys = [
   "AGENT_ROOMS_BACKUP_BUCKET",
   "AGENT_ROOMS_BACKUP_FILE",
   "AGENT_ROOMS_BACKUP_PREFIX",
+  "AGENT_ROOMS_DOMAIN",
   "AGENT_ROOMS_GITHUB_ENVIRONMENT",
   "AGENT_ROOMS_STAGE",
   "AGENT_ROOMS_URL",
@@ -122,13 +124,19 @@ const verifyProblem = (env: Env): string | undefined => {
   return undefined;
 };
 
+const listedProblem = (problem: string | undefined) =>
+  problem === undefined ? [] : [problem];
+
 export const profileProblems = (env: Env): readonly string[] => {
   const problems = profileChecks.flatMap(([name, pattern]) => {
     const problem = checkProblem(env, name, pattern);
     return problem === undefined ? [] : [problem];
   });
-  const agents = verifyProblem(env);
-  return agents === undefined ? problems : [...problems, agents];
+  return [
+    ...problems,
+    ...listedProblem(verifyProblem(env)),
+    ...listedProblem(domainProblem(envValue(env, "AGENT_ROOMS_DOMAIN"))),
+  ];
 };
 
 export const envFrom = (read: (key: string) => string | undefined): Env => {

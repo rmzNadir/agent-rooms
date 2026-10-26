@@ -9,6 +9,7 @@ import {
   tokenEnvName,
 } from "./deploy-profile.ts";
 import { cfFetch } from "./http-text.ts";
+import { findZoneName, zoneFailure } from "./zone-lookup.ts";
 
 export interface SetupCommand {
   readonly args: readonly string[];
@@ -22,6 +23,7 @@ export interface SetupRequest {
   readonly agentTokens: Readonly<Record<string, string | undefined>>;
   readonly apiToken: string;
   readonly bucket: string;
+  readonly domain: string | undefined;
   readonly environment: string;
   readonly existingSecrets: readonly string[];
   readonly repo: string;
@@ -38,6 +40,7 @@ export interface SetupIo {
   readonly exec: (command: SetupCommand) => Promise<string>;
   readonly log: (line: string) => void;
   readonly mintAdmin: () => string;
+  readonly zone: (account: string, hostname: string) => Promise<void>;
 }
 
 const labelsOf = (listed: string) =>
@@ -106,6 +109,7 @@ const hasSecret = (request: SetupRequest, name: string) =>
 
 const profileEnv = (request: SetupRequest): Env => ({
   AGENT_ROOMS_BACKUP_BUCKET: request.bucket,
+  AGENT_ROOMS_DOMAIN: request.domain,
   AGENT_ROOMS_GITHUB_ENVIRONMENT: request.environment,
   AGENT_ROOMS_STAGE: request.stage,
   AGENT_ROOMS_VERIFY_AGENTS: request.verifyAgents,
@@ -132,6 +136,9 @@ export const githubCommands = (
     variable(repo, "AGENT_ROOMS_GITHUB_ENVIRONMENT", environment),
     variable(repo, "AGENT_ROOMS_BACKUP_BUCKET", request.bucket),
   ];
+  if (request.domain !== undefined) {
+    commands.push(variable(repo, "AGENT_ROOMS_DOMAIN", request.domain));
+  }
   if (request.verifyAgents !== undefined) {
     commands.push(
       variable(repo, "AGENT_ROOMS_VERIFY_AGENTS", request.verifyAgents)
@@ -258,6 +265,9 @@ export const runSetup = async (request: SetupRequest, io: SetupIo) => {
   if (problems.length > 0) {
     throw new Error(problems.join("\n"));
   }
+  if (request.domain !== undefined) {
+    await io.zone(request.accountId, request.domain);
+  }
   await io.bootstrap();
   await io.bucket(request.accountId, request.bucket);
   const minted = adminToMint(request) ? io.mintAdmin() : undefined;
@@ -316,6 +326,7 @@ export const requestFromEnv = (
     agentTokens,
     apiToken: envValue(env, "CLOUDFLARE_API_TOKEN") ?? "",
     bucket: envValue(env, "AGENT_ROOMS_BACKUP_BUCKET") ?? "",
+    domain: envValue(env, "AGENT_ROOMS_DOMAIN"),
     environment: envValue(env, "AGENT_ROOMS_GITHUB_ENVIRONMENT") ?? "",
     existingSecrets,
     repo,
@@ -341,6 +352,12 @@ const liveIo = (token: string): SetupIo => ({
     console.log(line);
   },
   mintAdmin: mintAdminToken,
+  zone: async (account, hostname) => {
+    const found = await findZoneName(cfFetch(token), account, hostname);
+    if (found === undefined) {
+      throw new Error(zoneFailure(hostname));
+    }
+  },
 });
 
 if (import.meta.main) {

@@ -25,6 +25,7 @@ jobs:
         run: bun scripts/deploy-profile.ts
         env:
           AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
+          AGENT_ROOMS_DOMAIN: ${{ vars.AGENT_ROOMS_DOMAIN }}
           AGENT_ROOMS_GITHUB_ENVIRONMENT: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
           AGENT_ROOMS_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
 
@@ -35,6 +36,7 @@ jobs:
     env:
       AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
       AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
+      AGENT_ROOMS_DOMAIN: ${{ vars.AGENT_ROOMS_DOMAIN }}
       AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -44,6 +46,8 @@ jobs:
         with:
           bun-version: 1.4.3
       - run: bun install --frozen-lockfile
+      - name: Select the public URL
+        run: bun scripts/public-url.ts
       - name: Scratch files under the runner temp dir
         run: |
           echo "AGENT_ROOMS_BACKUP_FILE=$RUNNER_TEMP/rooms-backup.json" >> "$GITHUB_ENV"
@@ -51,3 +55,4 @@ jobs:
         run: bun scripts/deploy-guard.ts backup
         env:
           AGENT_ROOMS_BACKUP_PREFIX: nightly
+          AGENT_ROOMS_URL: ${{ env.AGENT_ROOMS_PUBLIC_URL }}
