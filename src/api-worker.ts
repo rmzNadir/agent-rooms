@@ -11,7 +11,7 @@ import {
   doorSockets,
 } from "./runtime/legacy-client.ts";
 import { DirectoryServer, RoomServer } from "./runtime/legacy-door.ts";
-import { deploySurface } from "./runtime/worker-surface.ts";
+import { deployInput, deploySurface } from "./runtime/worker-surface.ts";
 
 export const adminTokenKey = "AGENT_ROOMS_ADMIN_TOKEN";
 export const adminNameKey = "AGENT_ROOMS_ADMIN_NAME";
@@ -31,13 +31,7 @@ export const apiWorkerName = "Api";
 export const apiOptions = {
   compatibility: { date: "2026-08-31", flags: ["nodejs_compat"] },
   main: import.meta.url,
-  ...deploySurface({
-    dev: readEnv("ALCHEMY_DEV") === "true",
-    domain: readEnv("AGENT_ROOMS_DOMAIN"),
-    localState: readEnv("AGENT_ROOMS_LOCAL_STATE") === "1",
-    url: readEnv("AGENT_ROOMS_URL"),
-    workerName: readEnv("AGENT_ROOMS_WORKER_NAME"),
-  }),
+  ...deploySurface(deployInput(readEnv)),
 };
 
 const asDoor = (value: object) => value as DoorNamespace;

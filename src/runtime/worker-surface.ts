@@ -30,8 +30,11 @@ export interface DeploySurface {
   readonly name?: string;
 }
 
-export const scriptNameFromUrl = (url: string) => {
-  let host = "";
+export const scriptNameFromUrl = (url: string | undefined) => {
+  if (typeof url !== "string") {
+    throw new TypeError("script url");
+  }
+  let host: string | undefined;
   try {
     host = new URL(url).hostname;
   } catch {
@@ -40,8 +43,8 @@ export const scriptNameFromUrl = (url: string) => {
   if (!workersDevHost(host)) {
     return;
   }
-  const [name] = host.split(".");
-  if (name === undefined || name.length === 0) {
+  const name = host.slice(0, host.indexOf("."));
+  if (name.length === 0) {
     return;
   }
   return name;
@@ -66,12 +69,30 @@ export const pinnedScriptName = (
   url: string | undefined,
   workerName: string | undefined
 ) => {
-  const fromUrl = url === undefined ? undefined : scriptNameFromUrl(url);
-  if (fromUrl !== undefined) {
-    return fromUrl;
+  if (url !== undefined) {
+    const fromUrl = scriptNameFromUrl(url);
+    if (fromUrl !== undefined) {
+      return fromUrl;
+    }
   }
   return present(workerName);
 };
+
+const devKey = "ALCHEMY_DEV";
+const domainKey = "AGENT_ROOMS_DOMAIN";
+const localKey = "AGENT_ROOMS_LOCAL_STATE";
+const urlKey = "AGENT_ROOMS_URL";
+const workerKey = "AGENT_ROOMS_WORKER_NAME";
+
+export const deployInput = (
+  read: (name: string) => string | undefined
+): DeployInput => ({
+  dev: read(devKey) === "true",
+  domain: read(domainKey),
+  localState: read(localKey) === "1",
+  url: read(urlKey),
+  workerName: read(workerKey),
+});
 
 export const publicBase = (
   domain: string | undefined,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  deployInput,
   deploySurface,
   domainProblem,
   pinnedScriptName,
@@ -24,6 +25,7 @@ describe("worker surface", () => {
     expect(scriptNameFromUrl("not a url")).toBeUndefined();
     expect(scriptNameFromUrl("https://.workers.dev")).toBeUndefined();
     expect(scriptNameFromUrl("https://workers.dev")).toBeUndefined();
+    expect(() => scriptNameFromUrl(undefined)).toThrow("script url");
   });
 
   test("pins the workers.dev name ahead of the override", () => {
@@ -58,6 +60,14 @@ describe("worker surface", () => {
     expect(domainProblem("Rooms.Example.com")).toBe(
       "AGENT_ROOMS_DOMAIN must be a bare hostname"
     );
+    expect(domainProblem("a.co")).toBeUndefined();
+    expect(domainProblem("ab.co.d")).toBe(
+      "AGENT_ROOMS_DOMAIN must be a bare hostname"
+    );
+    const label = "a".repeat(63);
+    const exactHost = `${label}.${label}.${label}.${"b".repeat(61)}`;
+    expect(exactHost.length).toBe(253);
+    expect(domainProblem(exactHost)).toBeUndefined();
     expect(domainProblem(` ${"ab.".repeat(90)}com`)).toBe(
       "AGENT_ROOMS_DOMAIN must be a bare hostname"
     );
@@ -83,9 +93,14 @@ describe("worker surface", () => {
   });
 
   test("pins a live script and omits the domain until it is set", () => {
-    expect(deploySurface(live)).toEqual({
+    const pinned = deploySurface(live);
+    expect(pinned).toEqual({
       name: "agentrooms-api-nadir-example",
     });
+    expect(Object.hasOwn(pinned, "domain")).toBe(false);
+    expect(
+      Object.hasOwn(deploySurface({ ...live, url: undefined }), "name")
+    ).toBe(false);
     expect(deploySurface({ ...live, domain: "rooms.example.com" })).toEqual({
       domain: "rooms.example.com",
       name: "agentrooms-api-nadir-example",
@@ -106,5 +121,37 @@ describe("worker surface", () => {
     expect(() =>
       deploySurface({ ...live, domain: "api.example.workers.dev" })
     ).toThrow("AGENT_ROOMS_DOMAIN must not be a workers.dev host");
+  });
+
+  test("reads the deploy environment", () => {
+    const read =
+      (values: Record<string, string | undefined>) => (name: string) =>
+        values[name];
+    expect(
+      deployInput(
+        read({
+          AGENT_ROOMS_DOMAIN: "rooms.example.com",
+          AGENT_ROOMS_LOCAL_STATE: "1",
+          AGENT_ROOMS_URL: "https://api.example.workers.dev",
+          AGENT_ROOMS_WORKER_NAME: "kept-script",
+          ALCHEMY_DEV: "true",
+        })
+      )
+    ).toEqual({
+      dev: true,
+      domain: "rooms.example.com",
+      localState: true,
+      url: "https://api.example.workers.dev",
+      workerName: "kept-script",
+    });
+    expect(deployInput(read({})).dev).toBe(false);
+    expect(deployInput(read({ ALCHEMY_DEV: "false" })).dev).toBe(false);
+    expect(deployInput(read({})).localState).toBe(false);
+    expect(deployInput(read({ AGENT_ROOMS_LOCAL_STATE: "0" })).localState).toBe(
+      false
+    );
+    expect(deployInput(read({})).domain).toBeUndefined();
+    expect(deployInput(read({})).url).toBeUndefined();
+    expect(deployInput(read({})).workerName).toBeUndefined();
   });
 });
