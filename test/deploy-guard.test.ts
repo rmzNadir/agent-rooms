@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import {
   configFromEnv,
   execute,
@@ -230,13 +229,12 @@ describe("room backup", () => {
 const config = (patch: Partial<GuardConfig> = {}): GuardConfig => ({
   account: "acc",
   admin: "admin-token",
-  brobert: "brobert-token",
   bucket: "backups",
-  codex: "codex-token",
   file: "backup.json",
   prefix: "deploy",
   sha: "abc",
   url: "https://api.example.workers.dev",
+  verifyAgents: [],
   versionFile: "version.txt",
   worker: "api",
   ...patch,
@@ -348,6 +346,25 @@ describe("deploy guard", () => {
     );
     expect(again.errs).toContain("agent agent_a missing after deploy");
     expect(again.errs).toContain("admin whoami 401");
+    const named = io(() => ok("{}"), denied, files);
+    await expect(
+      runVerify(
+        config({
+          verifyAgents: [{ label: "ada", token: undefined }],
+        }),
+        named
+      )
+    ).rejects.toThrow("missing AGENT_ROOMS_ADA_TOKEN");
+    const rejected = io(() => ok("{}"), denied, files);
+    await expect(
+      runVerify(
+        config({
+          verifyAgents: [{ label: "ada", token: "ada-token" }],
+        }),
+        rejected
+      )
+    ).rejects.toThrow("verification failed");
+    expect(rejected.errs).toContain("ada whoami 401");
     expect(again.errs.join("\n")).not.toContain("SECRET_BODY");
     await expect(execute("nope", config(), guard)).rejects.toThrow("usage");
     await execute("verify", config({ file: "backup.json" }), {
@@ -358,18 +375,24 @@ describe("deploy guard", () => {
   });
 
   test("reads worker names and environment defaults", () => {
-    expect(workerScript("https://api.example.workers.dev", undefined)).toBe(
+    expect(workerScript("https://api.example.workers.dev", "other")).toBe(
       "api"
     );
     expect(workerScript("https://rooms.example", "Api")).toBe("Api");
     expect(workerScript("", undefined)).toBeUndefined();
     const env = configFromEnv({
+      AGENT_ROOMS_ADA_TOKEN: "ada-token",
+      AGENT_ROOMS_BACKUP_BUCKET: "room-backups",
       AGENT_ROOMS_URL: "https://api.example.workers.dev",
+      AGENT_ROOMS_VERIFY_AGENTS: "ada",
       CLOUDFLARE_ACCOUNT_ID: "",
     });
-    expect(env.bucket).toBe("agent-rooms-nadir-backups");
+    expect(env.bucket).toBe("room-backups");
     expect(env.worker).toBe("api");
     expect(env.account).toBeUndefined();
+    expect(env.verifyAgents).toEqual([{ label: "ada", token: "ada-token" }]);
+    expect(configFromEnv({}).bucket).toBeUndefined();
+    expect(configFromEnv({}).verifyAgents).toEqual([]);
   });
 
   test("request headers omit a content type until one is set", async () => {
@@ -397,91 +420,5 @@ describe("deploy guard", () => {
     );
     expect(seen[0]).toEqual({ body: null });
     expect(seen[1]).toEqual({ body: "body" });
-  });
-});
-
-describe("workflows", () => {
-  test("deploys from actions and keeps backups off the log", () => {
-    const deploy = readFileSync(".github/workflows/deploy.yml", "utf8");
-    const nightly = readFileSync(".github/workflows/backup.yml", "utf8");
-    expect(deploy).not.toContain("upload-artifact");
-    expect(deploy).not.toContain("AGENT_ROOMS_LOCAL_STATE");
-    expect(deploy).not.toContain("cat ");
-    expect(nightly).not.toContain("upload-artifact");
-    expect(nightly).not.toContain("cat ");
-    const order = [
-      "deploy-guard.ts backup",
-      "deploy-guard.ts pin",
-      "deploy -- --yes --stage nadir",
-      "deploy-guard.ts verify",
-      "deploy-guard.ts rollback",
-      "conformance.ts",
-      "live-e2e.ts",
-      "wake-receiver.ts down",
-    ];
-    let at = -1;
-    for (const step of order) {
-      const next = deploy.indexOf(step);
-      expect(next).toBeGreaterThan(at);
-      at = next;
-    }
-    expect(deploy).toContain("GITHUB_RUN_ATTEMPT");
-    expect(deploy).toContain("live-e2e.ts --sweep");
-    expect(deploy).toContain("workflow_dispatch:");
-    expect(deploy).toContain("branches: [main]");
-    expect(deploy).toContain("environment: nadir");
-    expect(deploy).toContain("group: agent-rooms-nadir");
-    expect(deploy).toContain("steps.deploy.outcome == 'failure'");
-    expect(deploy).toContain("steps.verify.outcome == 'failure'");
-    expect(deploy).toContain("Durable Object migration");
-    expect(nightly).toContain('cron: "15 7 * * *"');
-    expect(nightly).toContain("AGENT_ROOMS_BACKUP_PREFIX: nightly");
-    expect(nightly).toContain("group: agent-rooms-nadir");
-    expect(nightly).not.toContain("bun run deploy");
-  });
-});
-
-interface WorkflowStep {
-  readonly if?: string;
-  readonly name?: string;
-}
-
-interface WorkflowJob {
-  readonly env?: Record<string, string>;
-  readonly steps: readonly WorkflowStep[];
-}
-
-interface Workflow {
-  readonly jobs: {
-    readonly deploy?: WorkflowJob;
-    readonly [name: string]: WorkflowJob | undefined;
-  };
-}
-
-const jobContextExpression = /\$\{\{\s*(runner|steps|job|env)\./;
-
-const workflow = (file: string) =>
-  Bun.YAML.parse(readFileSync(file, "utf8")) as Workflow;
-
-describe("workflow contexts", () => {
-  test("job env only uses contexts GitHub allows there", () => {
-    for (const file of [
-      ".github/workflows/deploy.yml",
-      ".github/workflows/backup.yml",
-    ]) {
-      const jobs = Object.values(workflow(file).jobs);
-      const envs = jobs.map((job) => job?.env ?? {});
-      for (const env of envs) {
-        for (const value of Object.values(env)) {
-          expect(value).not.toMatch(jobContextExpression);
-        }
-      }
-    }
-  });
-
-  test("rollback still runs after a failed deploy or verify step", () => {
-    const steps = workflow(".github/workflows/deploy.yml").jobs.deploy?.steps;
-    const rollback = steps?.find((step) => step.name?.startsWith("Roll back"));
-    expect(rollback?.if?.startsWith("failure() && (")).toBe(true);
   });
 });

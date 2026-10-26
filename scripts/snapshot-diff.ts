@@ -52,7 +52,7 @@ export interface DeploymentRow {
 
 const DAY_MS = 86_400_000;
 const nightlyKey = /^nightly\/(\d{4}-\d{2}-\d{2})\.json$/u;
-const deployKey = /^deploy\/(\d{4}-\d{2}-\d{2})T/u;
+const deployKey = /^deploy\/(\d{4})-?(\d{2})-?(\d{2})T/u;
 
 export const parseJson = (text: string): Json => JSON.parse(text) as Json;
 
@@ -165,8 +165,12 @@ export const keyTime = (key: string): number | undefined => {
     return Date.parse(`${night[1]}T00:00:00Z`);
   }
   const staged = deployKey.exec(key);
-  if (staged?.[1] !== undefined) {
-    return Date.parse(`${staged[1]}T00:00:00Z`);
+  if (
+    staged?.[1] !== undefined &&
+    staged[2] !== undefined &&
+    staged[3] !== undefined
+  ) {
+    return Date.parse(`${staged[1]}-${staged[2]}-${staged[3]}T00:00:00Z`);
   }
   return undefined;
 };
