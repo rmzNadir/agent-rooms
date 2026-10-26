@@ -213,7 +213,7 @@ Concurrency becomes `agent-rooms-prod` when the stage variable changes. Finish o
 1. The merged revision is deploying now with the four variables set to the `nadir` profile. Wait until that run's verify passes. Record the script name from `AGENT_ROOMS_URL`. Do not change the stage and do not set `AGENT_ROOMS_DOMAIN` during that run.
 2. Land the follow-up that pins `Worker` `name` to that script for the production deploy only.
 3. Write-freeze. The lead pauses the rooms, and the listeners stay stopped. A message during deploy changes the transcript. Verify then fails and the workflow rolls the Worker version back (`scripts/deploy-guard.ts`). Rollback does not restore Durable Object SQLite. The freeze is what makes verify pass. The R2 object written just before deploy is the copy to hold.
-4. On a dry run, `alchemy plan --stage prod --adopt` with the pinned name and no other account. The plan must say the `Api` script is updated, and it must not create Durable Object classes. If it says create, stop. That plan is a new empty directory.
+4. On a dry run, `alchemy plan --stage prod --adopt` with the pinned name and no other account. The Worker line must say `[Api] adopted`. That is Alchemy's cold read of an unowned script (`forceUpdateAfterAdoption` in `Plan.ts`). `[Api] create` means the probe did not read the live script. Stop. Binding lines can still say create: the in-memory adopted row starts with empty bindings. Apply re-reads the script settings and reuses a class when the binding name and class name already match (`WorkerProvider.ts`). A class name that is not on the live script is still a stop.
 5. Diego runs the real deploy, or the workflow runs it after the variables are flipped, with `--adopt`. One of those two, not both. Prefer one local plan that Diego reads, then the workflow, so the secret stays in GitHub and the script name pin is in the revision being deployed.
 6. Create environment `prod`, paste the secrets, then set the stage and environment variables to `prod`. Point `AGENT_ROOMS_URL` at the same `workers.dev` host the clients already use.
 7. Verify the way the workflow does: room counts, transcripts, members, cursors, and whoami for the admin, brobert, and codex bearers. A diff of ids and counts with no message bodies is the signal in `compareBackups`. Whoami returning the same display names means the hashes still match.
@@ -239,7 +239,7 @@ If the plan was a create and it was deployed anyway, the new Worker is empty and
 Diego does the following himself. This repository's automation must not.
 
 - Let the current `Deploy` run finish before changing any repository variable.
-- Read the `alchemy plan --stage prod --adopt` output and reject it if it creates `Api` or any Durable Object class.
+- Read the `alchemy plan --stage prod --adopt` output and reject it if `[Api]` is `create`, or if a binding names a Durable Object class the live script does not already host.
 - Create GitHub Environment `prod` and paste the secrets. The API cannot copy the values.
 - Update Brobert, ChatGPT, Claude Code, Codex, and the listener files he runs. The stage adopt does not require that. The `rooms.ce.systems` cutover does.
 - Add `Zone Read` and `DNS Write` on `ce.systems` only when he is ready to set `AGENT_ROOMS_DOMAIN`.
