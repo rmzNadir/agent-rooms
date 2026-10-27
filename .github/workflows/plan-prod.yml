@@ -2,9 +2,14 @@ name: Plan prod adopt
 
 on:
   workflow_dispatch:
+    inputs:
+      adopt:
+        description: Take over cloud resources this stage does not own
+        type: boolean
+        default: false
   push:
     branches:
-      - cursor/stage-rename-plan-8d00
+      - cursor/deploy-adopt-flag-8d00
 
 permissions:
   contents: read
@@ -16,8 +21,9 @@ concurrency:
 jobs:
   plan:
     runs-on: ubuntu-latest
-    environment: prod
+    environment: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
     env:
+      ALCHEMY_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
       AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
       AGENT_ROOMS_DOMAIN: ${{ vars.AGENT_ROOMS_DOMAIN }}
       AGENT_ROOMS_URL: ${{ secrets.AGENT_ROOMS_URL }}
@@ -30,10 +36,15 @@ jobs:
         with:
           bun-version: 1.4.3
       - run: bun install --frozen-lockfile
-      - name: Plan stage prod with adopt
+      # A push of this branch is the dry run of Deploy dispatched with adopt
+      # checked. A manual run follows the same input as Deploy, default off.
+      - name: Plan the stage the way deploy would
+        env:
+          AGENT_ROOMS_ADOPT: ${{ (github.event_name == 'push' || inputs.adopt == true) && 'true' || 'false' }}
+          AGENT_ROOMS_ALCHEMY_COMMAND: plan
         run: |
           set -o pipefail
-          bunx alchemy plan --stage prod --adopt --no-input --env-file /dev/null 2>&1 | bun scripts/show-plan.ts
+          bun scripts/run-stage.ts 2>&1 | bun scripts/show-plan.ts
       - name: Read the pinned script classes
         if: always()
         run: bun scripts/list-script-classes.ts

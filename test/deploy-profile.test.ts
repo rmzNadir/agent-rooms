@@ -21,9 +21,11 @@ import {
   spawnCommand,
   stillMissing,
 } from "../scripts/setup-account.ts";
+import { adoptEnabled, stageArgs } from "../scripts/stage-command.ts";
 
 const environmentExpression =
   /environment: \$\{\{ vars\.AGENT_ROOMS_GITHUB_ENVIRONMENT \}\}/u;
+const stageVariable = /ALCHEMY_STAGE: \$\{\{ vars\.AGENT_ROOMS_STAGE \}\}/u;
 const stageGroup = /group: agent-rooms-\$\{\{ vars\.AGENT_ROOMS_STAGE \}\}/u;
 
 const profile = {
@@ -330,7 +332,7 @@ describe("workflows", () => {
     const order = [
       "deploy-guard.ts backup",
       "deploy-guard.ts pin",
-      "deploy -- --yes --stage",
+      "scripts/run-stage.ts",
       "deploy-guard.ts verify",
       "deploy-guard.ts rollback",
       "conformance.ts",
@@ -346,6 +348,11 @@ describe("workflows", () => {
     expect(deploy).toContain("GITHUB_RUN_ATTEMPT");
     expect(deploy).toContain("live-e2e.ts --sweep");
     expect(deploy).toContain("workflow_dispatch:");
+    expect(deploy).toContain("adopt:");
+    expect(deploy).toContain("default: false");
+    expect(deploy).toContain("AGENT_ROOMS_ALCHEMY_COMMAND: deploy");
+    expect(deploy).toContain("inputs.adopt == true && 'true' || 'false'");
+    expect(deploy).not.toContain("--adopt");
     expect(deploy).toContain("branches: [main]");
     expect(deploy).toMatch(environmentExpression);
     expect(deploy).toMatch(stageGroup);
@@ -365,14 +372,51 @@ describe("workflows", () => {
     expect(deploy).toContain("env.AGENT_ROOMS_PUBLIC_URL != ''");
     expect(nightly).toContain("env.AGENT_ROOMS_PUBLIC_URL");
     const plan = readFileSync(".github/workflows/plan-prod.yml", "utf8");
+    expect(plan).toContain("scripts/run-stage.ts");
+    expect(plan).toContain("AGENT_ROOMS_ALCHEMY_COMMAND: plan");
+    expect(plan).toMatch(stageVariable);
+    expect(plan).toMatch(environmentExpression);
+    expect(plan).toContain("cursor/deploy-adopt-flag-8d00");
     expect(plan).toContain(
-      "alchemy plan --stage prod --adopt --no-input --env-file /dev/null"
+      "github.event_name == 'push' || inputs.adopt == true"
     );
-    expect(plan).toContain("environment: prod");
-    expect(plan).toContain("cursor/stage-rename-plan-8d00");
     expect(plan).not.toContain("--yes");
     expect(plan).not.toContain("bun run deploy");
     expect(plan).toContain("scripts/show-plan.ts");
+    expect(plan).toContain("default: false");
+  });
+
+  test("adopts only when the deploy input asks for it", () => {
+    expect(adoptEnabled(undefined)).toBe(false);
+    expect(adoptEnabled("")).toBe(false);
+    expect(adoptEnabled("false")).toBe(false);
+    expect(adoptEnabled("1")).toBe(false);
+    expect(adoptEnabled("TRUE")).toBe(false);
+    expect(adoptEnabled("true")).toBe(true);
+    expect(
+      stageArgs({ adopt: false, command: "deploy", stage: "prod" })
+    ).toEqual(["deploy", "--yes", "--stage", "prod"]);
+    expect(
+      stageArgs({ adopt: true, command: "deploy", stage: "prod" })
+    ).toEqual(["deploy", "--yes", "--stage", "prod", "--adopt"]);
+    expect(stageArgs({ adopt: false, command: "plan", stage: "prod" })).toEqual(
+      ["plan", "--stage", "prod", "--no-input", "--env-file", "/dev/null"]
+    );
+    const planned = stageArgs({
+      adopt: true,
+      command: "plan",
+      stage: "prod",
+    });
+    expect(planned).toEqual([
+      "plan",
+      "--stage",
+      "prod",
+      "--adopt",
+      "--no-input",
+      "--env-file",
+      "/dev/null",
+    ]);
+    expect(planned).not.toContain("--yes");
   });
 });
 

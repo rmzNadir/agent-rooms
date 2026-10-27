@@ -2,6 +2,11 @@ name: Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      adopt:
+        description: Take over cloud resources this stage does not own
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -73,7 +78,10 @@ jobs:
         run: bun scripts/deploy-guard.ts pin
       - name: Deploy the stage
         id: deploy
-        run: bun run deploy -- --yes --stage "$ALCHEMY_STAGE"
+        env:
+          AGENT_ROOMS_ADOPT: ${{ inputs.adopt == true && 'true' || 'false' }}
+          AGENT_ROOMS_ALCHEMY_COMMAND: deploy
+        run: bun scripts/run-stage.ts
       - name: Verify rooms and tokens
         id: verify
         if: success() && env.AGENT_ROOMS_PUBLIC_URL != ''

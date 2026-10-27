@@ -210,17 +210,17 @@ Concurrency becomes `agent-rooms-prod` when the stage variable changes. Finish o
 
 ## 5. Cutover
 
-1. The merged revision is deploying now with the four variables set to the `nadir` profile. Wait until that run's verify passes. Record the script name from `AGENT_ROOMS_URL`. Do not change the stage and do not set `AGENT_ROOMS_DOMAIN` during that run.
-2. Land the follow-up that pins `Worker` `name` to that script for the production deploy only.
-3. Write-freeze. The lead pauses the rooms, and the listeners stay stopped. A message during deploy changes the transcript. Verify then fails and the workflow rolls the Worker version back (`scripts/deploy-guard.ts`). Rollback does not restore Durable Object SQLite. The freeze is what makes verify pass. The R2 object written just before deploy is the copy to hold.
-4. On a dry run, `alchemy plan --stage prod --adopt` with the pinned name and no other account. The Worker line must say `[Api] adopted`. That is Alchemy's cold read of an unowned script (`forceUpdateAfterAdoption` in `Plan.ts`). `[Api] create` means the probe did not read the live script. Stop. Binding lines can still say create: the in-memory adopted row starts with empty bindings. Apply re-reads the script settings and reuses a class when the binding name and class name already match (`WorkerProvider.ts`). A class name that is not on the live script is still a stop.
-5. Diego runs the real deploy, or the workflow runs it after the variables are flipped, with `--adopt`. One of those two, not both. Prefer one local plan that Diego reads, then the workflow, so the secret stays in GitHub and the script name pin is in the revision being deployed.
-6. Create environment `prod`, paste the secrets, then set the stage and environment variables to `prod`. Point `AGENT_ROOMS_URL` at the same `workers.dev` host the clients already use.
-7. Verify the way the workflow does: room counts, transcripts, members, cursors, and whoami for the admin, brobert, and codex bearers. A diff of ids and counts with no message bodies is the signal in `compareBackups`. Whoami returning the same display names means the hashes still match.
-8. Turn listeners back on. Unpause.
-9. Land the domain follow-up from section 3. Add `Zone Read` and `DNS Write` on `ce.systems`. Set `AGENT_ROOMS_DOMAIN` to `rooms.ce.systems`. Leave `AGENT_ROOMS_URL` as the `workers.dev` host. Verify against `https://rooms.ce.systems`, then update the client configs in section 4. Keep the `workers.dev` host serving.
-10. Access, after the new host has been verified.
-11. Deleting the old Worker waits for Diego. First `alchemy destroy --stage nadir --dry-run`. If that plan deletes the live script, do not run it. The script is the production data. There is no separate `nadir` Worker to delete when adoption reused it.
+Merge `495a552` is on `main`. `AGENT_ROOMS_STAGE` and `AGENT_ROOMS_GITHUB_ENVIRONMENT` are already `prod`. Environment `prod` exists. The script name is pinned. Deploy run 40550981165 then ran `alchemy deploy --yes --stage prod` with no `--adopt`, found `agentrooms-api-nadir-ge6trjlkbqiolu4t`, and stopped with `OwnedBySomeoneElse`. The cloud was unchanged, and the rollback step re-pinned the same version. Do not flip those two variables again. The remaining takeover is one Deploy dispatch with `adopt` checked, against the stage variable that is already `prod`.
+
+1. Write-freeze before that dispatch. The lead pauses the rooms, and the listeners stay stopped. A message during deploy changes the transcript. Verify then fails and the workflow rolls the Worker version back (`scripts/deploy-guard.ts`). Rollback does not restore Durable Object SQLite. The freeze is what makes verify pass. The R2 object written just before deploy is the copy to hold.
+2. The plan gate is `alchemy plan` with the same stage variable and the same `--adopt` the dispatch will pass. The Worker line must say `[Api] adopted`. That is Alchemy's cold read of an unowned script (`forceUpdateAfterAdoption` in `Plan.ts`). `[Api] create` means the probe did not read the live script. Stop. Binding lines can still say create: the in-memory adopted row starts with empty bindings. Apply re-reads the script settings and reuses a class when the binding name and class name already match (`WorkerProvider.ts`). A class name that is not on the live script is still a stop. `Plan prod adopt` on a push of the opt-in branch runs that plan. A manual plan follows the same `adopt` input and defaults off.
+3. `AdoptPolicy` fails an `Unowned` read when the flag is off. A push to `main` still deploys without `--adopt`. The one-time takeover is a `workflow_dispatch` of Deploy with the `adopt` input checked. That sets `AGENT_ROOMS_ADOPT=true`, and `scripts/run-stage.ts` appends `--adopt` to `alchemy deploy --yes --stage "$ALCHEMY_STAGE"`. The plan command is the same script with `plan` instead of `deploy`, `--yes` left off, and `--no-input --env-file /dev/null` added. Leave the input off for every later deploy.
+4. Do not wrap `Api` in `adopt(true)`. That policy stays on for every later deploy, so a stray script at the pinned name would be taken over with no extra decision. The CLI flag is the Alchemy pattern for importing an existing resource into a fresh stage, and it covers every resource in the stack. This stack's only resource is the Worker. The ten Durable Object binding lines are not separate resources. When the observed class name already matches, `WorkerProvider.ts` does not add that class to `newSqliteClasses`.
+5. Verify the way the workflow does: room counts, transcripts, members, cursors, and whoami for the admin, brobert, and codex bearers. A diff of ids and counts with no message bodies is the signal in `compareBackups`. Whoami returning the same display names means the hashes still match.
+6. Turn listeners back on. Unpause.
+7. Land the domain follow-up from section 3. Add `Zone Read` and `DNS Write` on `ce.systems`. Set `AGENT_ROOMS_DOMAIN` to `rooms.ce.systems`. Leave `AGENT_ROOMS_URL` as the `workers.dev` host. Verify against `https://rooms.ce.systems`, then update the client configs in section 4. Keep the `workers.dev` host serving.
+8. Access, after the new host has been verified.
+9. Deleting the old Worker waits for Diego. First `alchemy destroy --stage nadir --dry-run`. If that plan deletes the live script, do not run it. The script is the production data. There is no separate `nadir` Worker to delete when adoption reused it.
 
 Rollback of a bad adopt deploy is the workflow's Worker version rollback, plus the R2 object if a Durable Object migration was involved. Version 4 added 8 Durable Object classes, and a rollback cannot cross that. The stage rename must not add or rename classes in the same deploy. If verify fails, the version rollback puts the previous script back, and the storage is still the same namespaces.
 
@@ -230,17 +230,17 @@ If the plan was a create and it was deployed anyway, the new Worker is empty and
 
 | Work | What it touches | Risk |
 | --- | --- | --- |
-| The `nadir` deploy that is running | Variables already set on `main` | Low while the stage stays `nadir`. High if `AGENT_ROOMS_STAGE` is flipped to `prod` before the script name is pinned. |
+| The stage flip | Repository variables on `main` | Done. Both are `prod`. Deploy 40550981165 is the failed takeover. |
 | Pin `name` and `--adopt` | `src/api-worker.ts`, one production deploy | High if the plan shows create. The plan gate in section 5 is the control. Medium afterwards: stage `nadir` state still names the script, so a destroy or a second nadir deploy can delete or overwrite it. |
+| Deploy `adopt` input | `scripts/run-stage.ts` and the Deploy workflow | Low. A push to `main` still refuses an unowned script. The checked input is the only takeover. |
 | `AGENT_ROOMS_DOMAIN` | Worker `domain`, setup, the README, the public-URL gate in the workflows, zone token groups | Medium. A missing zone fails before GitHub writes when setup is used, and fails in Alchemy with `Cloudflare zone not found for <hostname>` when the variable is set by hand. A hostname owned by another Worker fails before traffic moves. Leaving `workersDev` on means the old host still serves if DNS is late. Access in the same deploy can fail verify. |
 | Rebuild from the R2 JSON | New export, new command, Stryker on `src/**/*.ts` | High, and it does not preserve bearers or webhook secrets. Do not start this unless adoption is impossible. |
 | New bucket | Copy objects to `agent-rooms-prod-backups` | Low, and unnecessary. Keep the current bucket. |
 
 Diego does the following himself. This repository's automation must not.
 
-- Let the current `Deploy` run finish before changing any repository variable.
-- Read the `alchemy plan --stage prod --adopt` output and reject it if `[Api]` is `create`, or if a binding names a Durable Object class the live script does not already host.
-- Create GitHub Environment `prod` and paste the secrets. The API cannot copy the values.
+- Read the plan output and reject it if `[Api]` is `create`, or if a binding names a Durable Object class the live script does not already host. Binding lines that say `create` for a class the live script already hosts are the empty adopted binding set, not a new namespace.
+- Dispatch Deploy once with the `adopt` input checked, while `AGENT_ROOMS_STAGE` is already `prod`. Leave the input off for every later deploy. Do not set a repository variable to keep adoption on.
 - Update Brobert, ChatGPT, Claude Code, Codex, and the listener files he runs. The stage adopt does not require that. The `rooms.ce.systems` cutover does.
 - Add `Zone Read` and `DNS Write` on `ce.systems` only when he is ready to set `AGENT_ROOMS_DOMAIN`.
 - Confirm, in writing, before any `alchemy destroy` of stage `nadir`.
