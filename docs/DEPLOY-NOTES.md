@@ -24,6 +24,7 @@ Environment name is the second variable. Secrets stay in that environment.
 | `AGENT_ROOMS_GITHUB_ENVIRONMENT` | `nadir` |
 | `AGENT_ROOMS_BACKUP_BUCKET` | `agent-rooms-nadir-backups` |
 | `AGENT_ROOMS_VERIFY_AGENTS` | `brobert,codex` |
+| `AGENT_ROOMS_DOMAIN` | unset |
 
 `AGENT_ROOMS_ADMIN_NAME` stays `human`.
 

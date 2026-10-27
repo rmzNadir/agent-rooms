@@ -74,7 +74,10 @@
     "test/live-sweep.test.ts",
     "test/hop-race.test.ts",
     "test/retire.test.ts",
-    "test/read-retry.test.ts"
+    "test/read-retry.test.ts",
+    "test/worker-surface.test.ts",
+    "test/zone-lookup.test.ts",
+    "test/seal-exports.test.ts"
   ],
   "suppressions": [
     "biome-ignore",

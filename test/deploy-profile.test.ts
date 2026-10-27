@@ -38,6 +38,7 @@ const request = (patch: Partial<SetupRequest> = {}): SetupRequest => ({
   agentTokens: {},
   apiToken: "cloudflare-token-value",
   bucket: "room-backups",
+  domain: undefined,
   environment: "rooms",
   existingSecrets: [],
   repo: "example/agent-rooms",
@@ -73,6 +74,10 @@ const recording = () => {
       lines.push(line);
     },
     mintAdmin: () => "minted-admin-token-value",
+    zone: (_account, hostname) => {
+      lines.push(`zone ${hostname}`);
+      return Promise.resolve();
+    },
   };
   return { commands, io, lines };
 };
@@ -263,6 +268,18 @@ describe("account setup", () => {
       again.io
     );
     expect(again.lines.join("\n")).not.toContain("still needed");
+    const named = recording();
+    await runSetup(request({ domain: "rooms.example.com" }), named.io);
+    expect(named.lines[0]).toBe("zone rooms.example.com");
+    expect(named.lines[1]).toBe("bootstrap");
+    expect(
+      named.commands.some((line) => line.includes("AGENT_ROOMS_DOMAIN"))
+    ).toBe(true);
+    const badDomain = recording();
+    await expect(
+      runSetup(request({ domain: "https://rooms.example.com" }), badDomain.io)
+    ).rejects.toThrow("AGENT_ROOMS_DOMAIN must be a bare hostname");
+    expect(badDomain.lines).toEqual([]);
   });
 
   test("spawns a command and keeps its output", async () => {
@@ -295,6 +312,7 @@ describe("account setup", () => {
       []
     );
     expect(built.stage).toBe("rooms");
+    expect(built.domain).toBeUndefined();
     expect(Object.hasOwn(built.agentTokens, "ada")).toBe(true);
     expect(built.repo).toBe("example/agent-rooms");
   });
@@ -343,6 +361,18 @@ describe("workflows", () => {
     expect(nightly).toMatch(stageGroup);
     expect(nightly).not.toContain("nadir");
     expect(nightly).not.toContain("bun run deploy");
+    expect(deploy).toContain("scripts/public-url.ts");
+    expect(deploy).toContain("env.AGENT_ROOMS_PUBLIC_URL != ''");
+    expect(nightly).toContain("env.AGENT_ROOMS_PUBLIC_URL");
+    const plan = readFileSync(".github/workflows/plan-prod.yml", "utf8");
+    expect(plan).toContain(
+      "alchemy plan --stage prod --adopt --no-input --env-file /dev/null"
+    );
+    expect(plan).toContain("environment: prod");
+    expect(plan).toContain("cursor/stage-rename-plan-8d00");
+    expect(plan).not.toContain("--yes");
+    expect(plan).not.toContain("bun run deploy");
+    expect(plan).toContain("scripts/show-plan.ts");
   });
 });
 
@@ -373,6 +403,7 @@ describe("workflow contexts", () => {
     for (const file of [
       ".github/workflows/deploy.yml",
       ".github/workflows/backup.yml",
+      ".github/workflows/plan-prod.yml",
     ]) {
       const jobs = Object.values(workflow(file).jobs);
       const envs = jobs.map((job) => job?.env ?? {});

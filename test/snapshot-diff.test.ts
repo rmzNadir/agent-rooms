@@ -23,7 +23,6 @@ import {
   type RoomSnap,
   readPayload,
   roomDiff,
-  scriptNameFromUrl,
   stitchTranscript,
   textField,
   toolFailed,
@@ -151,15 +150,6 @@ describe("backup keys", () => {
       objectKeys(parseJson('{"result":[{"key":"a"},{"size":1}]}'))
     ).toEqual(["a"]);
     expect(objectKeys(parseJson("{}"))).toEqual([]);
-  });
-
-  test("reads a workers.dev script name", () => {
-    expect(scriptNameFromUrl("https://api.example.workers.dev/mcp")).toBe(
-      "api"
-    );
-    expect(scriptNameFromUrl("https://rooms.example")).toBeUndefined();
-    expect(scriptNameFromUrl("not a url")).toBeUndefined();
-    expect(scriptNameFromUrl("https://.workers.dev")).toBeUndefined();
   });
 });
 

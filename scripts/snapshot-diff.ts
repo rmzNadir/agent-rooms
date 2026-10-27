@@ -193,23 +193,6 @@ export const backupKey = (prefix: string, iso: string, sha: string) => {
   return `deploy/${stamp}-${sha}.json`;
 };
 
-export const scriptNameFromUrl = (url: string) => {
-  let host = "";
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    return;
-  }
-  if (!host.endsWith(".workers.dev")) {
-    return;
-  }
-  const [name] = host.split(".");
-  if (name === undefined || name.length === 0) {
-    return;
-  }
-  return name;
-};
-
 export const toolText = (payload: Json) => {
   const content = field(field(payload, "result"), "content");
   if (!Array.isArray(content)) {

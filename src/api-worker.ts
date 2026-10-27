@@ -2,6 +2,7 @@ import { Worker } from "alchemy/Cloudflare";
 import { Config, Effect, Layer } from "effect";
 import { dispatch } from "./api/dispatch.ts";
 import { chatLayer } from "./app/chat.ts";
+import { readEnv } from "./boundary/external.ts";
 import { roomsOnCloudflare } from "./runtime/domain-host.ts";
 import {
   type DoorNamespace,
@@ -10,6 +11,7 @@ import {
   doorSockets,
 } from "./runtime/legacy-client.ts";
 import { DirectoryServer, RoomServer } from "./runtime/legacy-door.ts";
+import { deployInput, deploySurface } from "./runtime/worker-surface.ts";
 
 export const adminTokenKey = "AGENT_ROOMS_ADMIN_TOKEN";
 export const adminNameKey = "AGENT_ROOMS_ADMIN_NAME";
@@ -29,6 +31,7 @@ export const apiWorkerName = "Api";
 export const apiOptions = {
   compatibility: { date: "2026-08-31", flags: ["nodejs_compat"] },
   main: import.meta.url,
+  ...deploySurface(deployInput(readEnv)),
 };
 
 const asDoor = (value: object) => value as DoorNamespace;

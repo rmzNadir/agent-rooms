@@ -25,6 +25,7 @@ jobs:
         run: bun scripts/deploy-profile.ts
         env:
           AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
+          AGENT_ROOMS_DOMAIN: ${{ vars.AGENT_ROOMS_DOMAIN }}
           AGENT_ROOMS_GITHUB_ENVIRONMENT: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
           AGENT_ROOMS_STAGE: ${{ vars.AGENT_ROOMS_STAGE }}
           AGENT_ROOMS_VERIFY_AGENTS: ${{ vars.AGENT_ROOMS_VERIFY_AGENTS }}
@@ -38,6 +39,7 @@ jobs:
       AGENT_ROOMS_ADMIN_NAME: human
       AGENT_ROOMS_ADMIN_TOKEN: ${{ secrets.AGENT_ROOMS_ADMIN_TOKEN }}
       AGENT_ROOMS_BACKUP_BUCKET: ${{ vars.AGENT_ROOMS_BACKUP_BUCKET }}
+      AGENT_ROOMS_DOMAIN: ${{ vars.AGENT_ROOMS_DOMAIN }}
       AGENT_ROOMS_BROBERT_TOKEN: ${{ secrets.AGENT_ROOMS_BROBERT_TOKEN }}
       AGENT_ROOMS_CODEX_TOKEN: ${{ secrets.AGENT_ROOMS_CODEX_TOKEN }}
       AGENT_ROOMS_GITHUB_ENVIRONMENT: ${{ vars.AGENT_ROOMS_GITHUB_ENVIRONMENT }}
@@ -54,6 +56,8 @@ jobs:
         with:
           bun-version: 1.4.3
       - run: bun install --frozen-lockfile
+      - name: Select the public URL
+        run: bun scripts/public-url.ts
       - name: Scratch files under the runner temp dir
         run: |
           echo "AGENT_ROOMS_BACKUP_FILE=$RUNNER_TEMP/rooms-backup.json" >> "$GITHUB_ENV"
@@ -72,7 +76,9 @@ jobs:
         run: bun run deploy -- --yes --stage "$ALCHEMY_STAGE"
       - name: Verify rooms and tokens
         id: verify
-        if: success() && env.AGENT_ROOMS_URL != ''
+        if: success() && env.AGENT_ROOMS_PUBLIC_URL != ''
+        env:
+          AGENT_ROOMS_URL: ${{ env.AGENT_ROOMS_PUBLIC_URL }}
         run: bun scripts/deploy-guard.ts verify
       # A Worker rollback cannot cross a Durable Object migration. Version 4
       # added 8 Durable Object classes. When Cloudflare rejects the rollback,
@@ -81,18 +87,21 @@ jobs:
         if: failure() && (steps.pin.outcome == 'success' && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure'))
         run: bun scripts/deploy-guard.ts rollback
       - name: Conformance
-        if: success() && env.AGENT_ROOMS_URL != ''
+        if: success() && env.AGENT_ROOMS_PUBLIC_URL != ''
         run: bun scripts/conformance.ts
         env:
           AGENT_ROOMS_TOKEN: ${{ env.AGENT_ROOMS_ADMIN_TOKEN }}
+          AGENT_ROOMS_URL: ${{ env.AGENT_ROOMS_PUBLIC_URL }}
       - name: Live end to end
-        if: success() && env.AGENT_ROOMS_URL != ''
+        if: success() && env.AGENT_ROOMS_PUBLIC_URL != ''
         env:
+          AGENT_ROOMS_URL: ${{ env.AGENT_ROOMS_PUBLIC_URL }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bun scripts/live-e2e.ts
       - name: Sweep leftover end to end agents
-        if: always() && env.AGENT_ROOMS_URL != ''
+        if: always() && env.AGENT_ROOMS_PUBLIC_URL != ''
         env:
+          AGENT_ROOMS_URL: ${{ env.AGENT_ROOMS_PUBLIC_URL }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bun scripts/live-e2e.ts --sweep
       - name: Delete the throwaway receiver

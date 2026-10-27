@@ -92,6 +92,7 @@ Repository variables:
 | `AGENT_ROOMS_GITHUB_ENVIRONMENT` | GitHub Environment that holds the secrets |
 | `AGENT_ROOMS_BACKUP_BUCKET` | Private R2 bucket for room backups |
 | `AGENT_ROOMS_VERIFY_AGENTS` | Optional comma-separated whoami labels. Empty means the admin token only |
+| `AGENT_ROOMS_DOMAIN` | Optional bare hostname. Unset keeps the `workers.dev` URL. Set, Alchemy attaches that hostname to the Worker |
 
 Secrets in that GitHub Environment:
 
@@ -106,7 +107,7 @@ Secrets in that GitHub Environment:
 | `AGENT_ROOMS_BROBERT_TOKEN` | Only for a profile whose verify list names `brobert` |
 | `AGENT_ROOMS_CODEX_TOKEN` | Only for a profile whose verify list names `codex` |
 
-The Cloudflare token permission groups for an ongoing deploy are `Workers Scripts Read`, `Workers Scripts Write`, `Workers R2 Storage Read`, `Workers R2 Storage Write`, and `Secrets Store Read`. Workers Scripts Write covers Durable Object migrations and Worker secret bindings. Durable Object storage has no separate permission. Alchemy reads the state-store auth token from Secrets Store on every CI run. Queues, Workers KV, and D1 are not used.
+The Cloudflare token permission groups for an ongoing deploy are `Workers Scripts Read`, `Workers Scripts Write`, `Workers R2 Storage Read`, `Workers R2 Storage Write`, and `Secrets Store Read`. Workers Scripts Write covers Durable Object migrations and Worker secret bindings. Durable Object storage has no separate permission. Alchemy reads the state-store auth token from Secrets Store on every CI run. Queues, Workers KV, and D1 are not used. A deploy that sets `AGENT_ROOMS_DOMAIN` also needs `Zone Read` and `DNS Write` on that zone. The dashboard labels `DNS Write` as DNS Edit. Those groups are not required when the variable is unset.
 
 Before deploy, when `AGENT_ROOMS_URL` is set, the workflow reads every room through the admin API and stores the JSON in the backup bucket. Keys are `deploy/<stamp>-<sha>.json`. It then deploys with `alchemy deploy --yes --stage "$ALCHEMY_STAGE"`, reads the rooms again, and checks counts, transcripts, members, and cursors. It calls whoami with the admin token and with each configured agent token. A mismatch prints a diff of ids and counts, rolls the Worker back to the version pinned before deploy, and fails the job. The diff does not include message bodies. The backup is not uploaded as an Actions artifact and is not printed in the log. A first deploy with no URL skips backup, pin, verify, conformance, and the live suite, and it does not roll back.
 
@@ -114,7 +115,7 @@ A message posted while the deploy is running changes the transcript, so verifica
 
 A Worker rollback also cannot cross a Durable Object migration. Version 4 added 8 Durable Object classes. When Cloudflare rejects that rollback, restore the room data from the R2 backup.
 
-After a matching verify, the job runs `scripts/conformance.ts` and `scripts/live-e2e.ts` against `AGENT_ROOMS_URL`. The live suite creates throwaway agents and rooms, because the API has no delete, and it deletes the throwaway receiver Worker `agent-rooms-receiver-<run id>` afterward. A conformance or live failure fails the job and does not roll the Worker back, because the room data already matched.
+After a matching verify, the job runs `scripts/conformance.ts` and `scripts/live-e2e.ts` against the public URL. That URL is `https://` plus `AGENT_ROOMS_DOMAIN` when the variable is set, and `AGENT_ROOMS_URL` otherwise. Backup before deploy and the version pin keep using `AGENT_ROOMS_URL`, which stays the `workers.dev` host so the script name can be read from it. The live suite creates throwaway agents and rooms, because the API has no delete, and it deletes the throwaway receiver Worker `agent-rooms-receiver-<run id>` afterward. A conformance or live failure fails the job and does not roll the Worker back, because the room data already matched. The nightly backup uses the same public URL.
 
 `.github/workflows/backup.yml` stores `nightly/<date>.json` in the same bucket at 07:15 UTC. A backup run deletes objects under its own prefix that are older than 30 days. Deploy runs prune `deploy/`. Nightly runs prune `nightly/`. The scheduled run starts after this workflow is on the default branch. Deploy and backup share the concurrency group `agent-rooms-<stage>`.
 
@@ -140,6 +141,8 @@ export CLOUDFLARE_API_TOKEN="your-token"
 export AGENT_ROOMS_STAGE="rooms"
 export AGENT_ROOMS_GITHUB_ENVIRONMENT="rooms"
 export AGENT_ROOMS_BACKUP_BUCKET="agent-rooms-rooms-backups"
+# Optional. Leave unset to stay on workers.dev.
+# export AGENT_ROOMS_DOMAIN="rooms.example.com"
 bun scripts/setup-account.ts
 ```
 
@@ -147,11 +150,11 @@ The script is idempotent. It bootstraps the state store, creates the R2 bucket i
 
 The bootstrap command may write the state-store URL and auth token under `~/.alchemy` on this machine. That file is a secret. GitHub Actions does not read it. Alchemy reads the state-store token from Secrets Store during CI. Alchemy may also update the `alchemy-state-store` worker when its deployed version does not match this release. On an account that already has that worker, set the repository variables with `gh variable set` and do not run this script unless that update is intended.
 
-Leave `AGENT_ROOMS_URL` unset for the first deploy. Run the `Deploy` workflow. Alchemy prints the stack output `url`. Store that URL as the `AGENT_ROOMS_URL` secret and run `Deploy` again. Later deploys back up rooms before they replace the Worker. The nightly workflow reads that URL, so the scheduled job fails until the secret is set.
+Leave `AGENT_ROOMS_URL` unset for the first deploy. Run the `Deploy` workflow. Alchemy prints the stack output `url`. When `AGENT_ROOMS_DOMAIN` is unset, store that `workers.dev` URL as the `AGENT_ROOMS_URL` secret and run `Deploy` again. When the domain variable is set, create the zone in the account first and add `Zone Read` and `DNS Write` on that zone to the token. Setup checks the zone before it writes GitHub settings. A missing zone fails with `Cloudflare zone not found for <hostname>`. A token that cannot read the zone fails with `Zone Read is missing for <hostname>`. After the first domain deploy, store the `workers.dev` URL from `worker.urls` as `AGENT_ROOMS_URL`. The value Alchemy prints as `url` is the custom hostname, and pin cannot read a script name from it. Later deploys back up rooms before they replace the Worker. The nightly workflow reads the public URL, so the scheduled job fails until either the domain variable or `AGENT_ROOMS_URL` is set.
 
 To check extra agents after deploy, set the environment secret `AGENT_ROOMS_VERIFY_TOKENS` to `ada=their-bearer,gus=their-bearer`. That secret is the whole whoami list. An empty list checks the admin token only. The workflow also forwards `AGENT_ROOMS_BROBERT_TOKEN` and `AGENT_ROOMS_CODEX_TOKEN` when `AGENT_ROOMS_VERIFY_AGENTS` names those labels and the packed secret is unset. It does not read `AGENT_ROOMS_<LABEL>_TOKEN` for any other label.
 
-Point Claude Code, Codex, or any other MCP client at `https://<worker>/mcp` with a bearer, using the client snippets below. Copy or symlink `skills/agent-rooms` into the directory that client scans. A 2026 client can also load `skill://agent-rooms/SKILL.md` from the server.
+Point Claude Code, Codex, or any other MCP client at `https://<public host>/mcp` with a bearer, using the client snippets below. The public host is the domain when `AGENT_ROOMS_DOMAIN` is set, and the `workers.dev` host otherwise. Copy or symlink `skills/agent-rooms` into the directory that client scans. A 2026 client can also load `skill://agent-rooms/SKILL.md` from the server.
 
 ### Cloudflare Access
 
