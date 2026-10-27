@@ -5,19 +5,37 @@
 // create. Replacing that constructor with a class instance stops the walk.
 // The object stays plain data, so the local bundle still sees `kind`
 // after `stripEffects` (`LocalProvider.ts`) and still emits the class.
+//
+// `services` is an Effect `Context`. In Effect 4 that object is plain data
+// and `cacheRoot` points at the object itself. Plan's walkers cut that
+// cycle (`mapPlainData` in `Util/data.ts`). `encodeState` does not, and the
+// adopt apply persists the unstripped `old` props (`Apply.ts`). The cycle
+// overflows the stack. The stored export keeps `kind` and drops `services`.
 
 import { Effect } from "effect";
 
 class SealedConstructor {}
 
 const sealEntry = (entry: object) => {
-  const descriptor = Object.getOwnPropertyDescriptor(entry, "constructor");
-  if (descriptor === undefined || !Effect.isEffect(descriptor.value)) {
+  const constructorProperty = Object.getOwnPropertyDescriptor(
+    entry,
+    "constructor"
+  );
+  const services = Object.getOwnPropertyDescriptor(entry, "services");
+  const replaceConstructor =
+    constructorProperty !== undefined &&
+    Effect.isEffect(constructorProperty.value);
+  const replaceServices =
+    services !== undefined &&
+    typeof services.value === "object" &&
+    services.value !== null;
+  if (!(replaceConstructor || replaceServices)) {
     return entry;
   }
   return {
     ...entry,
-    constructor: new SealedConstructor(),
+    ...(replaceConstructor ? { constructor: new SealedConstructor() } : {}),
+    ...(replaceServices ? { services: {} } : {}),
   };
 };
 
