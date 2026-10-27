@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { isResolved } from "alchemy/Diff";
+import { isDurableObjectExport } from "alchemy/Cloudflare/Workers/DurableObject";
+import { isResolved, stripEffects } from "alchemy/Diff";
 import { isPlainData } from "alchemy/Util/data";
 import { Effect } from "effect";
 import {
@@ -16,19 +17,32 @@ const exportsWithEffect = () => ({
   },
 });
 
+const kept = () => "kept";
+
 describe("sealed worker exports", () => {
-  test("keeps constructors readable and resolves for the adoption probe", () => {
+  test("keeps class names and resolves for the adoption probe", () => {
     const plain = exportsWithEffect();
     const sealed = sealWorkerExports(plain);
-    expect(isPlainData(sealed)).toBe(false);
+    expect(isPlainData(sealed)).toBe(true);
+    expect(isPlainData(plain)).toBe(true);
     expect(isResolved({ exports: plain, name: "agentrooms-api" })).toBe(false);
     expect(isResolved({ exports: sealed, name: "agentrooms-api" })).toBe(true);
     expect(Object.keys(sealed)).toEqual(["RoomAggregate"]);
     expect(sealed.RoomAggregate.kind).toBe("durableObject");
-    expect(sealed.RoomAggregate.constructor).toBe(durableObjectConstructor);
-    expect(Object.entries(sealed)[0]?.[1].constructor).toBe(
-      durableObjectConstructor
+    expect(Effect.isEffect(sealed.RoomAggregate.constructor)).toBe(false);
+    expect(isDurableObjectExport(stripEffects(sealed).RoomAggregate)).toBe(
+      true
     );
+    expect(sealWorkerExports({ label: "kept" }).label).toBe("kept");
+    expect(sealWorkerExports({ slot: null }).slot).toBeNull();
+    expect(sealWorkerExports({ kept }).kept).toBe(kept);
+    const marker = { text: "kept" };
+    expect(sealWorkerExports({ marker }).marker).toBe(marker);
+    expect(
+      sealWorkerExports({
+        RoomAggregate: { constructor: "plain", kind: "durableObject" },
+      }).RoomAggregate.constructor
+    ).toBe("plain");
   });
 
   test("leaves a worker with no exports unchanged", () => {
@@ -47,8 +61,9 @@ describe("sealed worker exports", () => {
     sealResourceExports(resource);
     expect(isResolved(resource.Props)).toBe(true);
     expect(resource.Props.name).toBe("agentrooms-api");
-    expect(resource.Props.exports.RoomAggregate.constructor).toBe(
-      durableObjectConstructor
-    );
+    expect(resource.Props.exports.RoomAggregate.kind).toBe("durableObject");
+    expect(
+      Effect.isEffect(resource.Props.exports.RoomAggregate.constructor)
+    ).toBe(false);
   });
 });
